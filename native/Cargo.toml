@@ -1,0 +1,29 @@
+[package]
+name = "ts-payjoin"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+default = ["v2"]
+v2 = []
+
+[dependencies]
+napi = { version = "2.16.16", features = ["async", "napi4", "napi6"] }
+napi-derive = "2.16.13"
+payjoin = { version = "0.22.0", features = ["v2", "io", "send", "receive"] }
+url = "2.5.0"
+ohttp = { package = "bitcoin-ohttp", version = "0.6.0" }
+reqwest = { version = "0.11", features = ["default-tls"] }
+tokio = { version = "1.0", features = ["full"] }
+base64 = "0.13"
+env_logger = "0.10"
+log = "0.4"
+
+[build-dependencies]
+napi-build = "2.0.1"
+
+[profile.release]
+lto = true
