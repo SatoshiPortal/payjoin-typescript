@@ -1,8 +1,8 @@
 {
-  "name": "ts-payjoin",
+  "name": "payjoin-typescript",
   "version": "1.0.0",
   "description": "TypeScript bindings for the Rust PayJoin library",
-  "main": "src/index.ts",
+  "main": "dist/index.js",
   "napi": {
     "name": "index",
     "triples": {
@@ -13,13 +13,14 @@
       ]
     },
     "package": {
-      "name": "@ts-payjoin/core"
+      "name": "@payjoin-typescript/core"
     },
     "path": "./native"
   },
   "scripts": {
+    "prepare": "npm run build",
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release --cargo-cwd native",
+    "build": "napi build --platform --release --cargo-cwd native && tsc",
     "build:debug": "napi build --platform --cargo-cwd native",
     "test": "RUST_BACKTRACE=1 RUST_LOG=debug jest --verbose"
   },
@@ -37,7 +38,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/yourusername/ts-payjoin.git"
+    "url": "git+https://github.com/SatoshiPortal/payjoin-typescript.git"
   },
   "keywords": [
     "typescript",
