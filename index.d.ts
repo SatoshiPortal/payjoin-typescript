@@ -90,10 +90,14 @@ export declare class PayjoinSenderBuilder {
 }
 export declare class PayjoinSender {
   extractV2(ohttpRelay: string): Promise<PayjoinRequest>
+  toJson(): string
+  static fromJson(json: string): PayjoinSender
 }
 export declare class OhttpContext { }
 export declare class PayjoinReceiver {
   constructor(address: string, directory: string, ohttpKeys: Uint8Array, ohttpRelay: string, expirySeconds?: bigint | undefined | null)
+  toJson(): string
+  static fromJson(jsonStr: string): PayjoinReceiver
   pjUrl(): string
   pjUriBuilder(): PayjoinUriBuilder
   extractRequest(): PayjoinRequest

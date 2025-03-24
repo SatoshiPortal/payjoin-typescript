@@ -39,6 +39,26 @@ export class PayjoinReceiver implements IPayjoinReceiver {
     }
   }
 
+  toJson(): string {
+    try {
+      return this.internal.toJson();
+    } catch (error) {
+      throw new Error(`Failed to serialize receiver: ${error}`);
+    }
+  }
+
+  static fromJson(json: string): PayjoinReceiver {
+    try {
+      const internal = native.PayjoinReceiver.fromJson(json);
+      const receiver = Object.create(PayjoinReceiver.prototype);
+      receiver.internal = internal;
+
+      return receiver;
+    } catch (error) {
+      throw new Error(`Failed to deserialize receiver: ${error}`);
+    }
+  }
+
   pjUrl(): string {
     return this.internal.pjUrl();
   }

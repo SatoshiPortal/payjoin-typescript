@@ -16,7 +16,8 @@ import { PayjoinHttp } from '../src';
 describe('PayjoinReceiver', () => {
   const validAddress = 'bcrt1qauwhftqrp57q200pp7wx75dfwfywrmla2v67dw';
   const validDirectory = 'https://payjo.in';
-  const validRelay = 'https://pj.bobspacebkk.com';
+  //const validRelay = 'https://pj.bobspacebkk.com';
+  const validRelay = 'https://ohttp.cakewallet.com';
   let ohttpKeys: PayjoinOhttpKeys;
   let ohttpKeysBytes: Uint8Array;
 
@@ -26,7 +27,7 @@ describe('PayjoinReceiver', () => {
   });
 
   describe('constructor', () => {
-    it.only('should create a PayjoinReceiver instance', () => {
+    it('should create a PayjoinReceiver instance', () => {
       const receiver = new PayjoinReceiver(
         validAddress,
         validDirectory,
@@ -37,7 +38,7 @@ describe('PayjoinReceiver', () => {
       expect(receiver).toBeInstanceOf(PayjoinReceiver);
     });
 
-    it.only('should throw on invalid address', () => {
+    it('should throw on invalid address', () => {
       expect(() => 
         new PayjoinReceiver(
           'invalid-address',
@@ -49,8 +50,95 @@ describe('PayjoinReceiver', () => {
     });
   });
 
+  describe('serialization', () => {
+    let receiver: PayjoinReceiver;
+    
+    beforeEach(() => {
+      receiver = new PayjoinReceiver(
+        validAddress,
+        validDirectory,
+        ohttpKeysBytes,
+        validRelay,
+        BigInt(3600) // 1 hour expiry
+      );
+    });
+  
+    it('should serialize to JSON and deserialize back', () => {
+      // Serialize the receiver
+      const json = receiver.toJson();
+      
+      // Check that we got a valid JSON string
+      expect(typeof json).toBe('string');
+      expect(() => JSON.parse(json)).not.toThrow();
+      
+      // Deserialize back to a receiver
+      const restoredReceiver = PayjoinReceiver.fromJson(json);
+      
+      // Check that we got a valid receiver instance
+      expect(restoredReceiver).toBeInstanceOf(PayjoinReceiver);
+      
+      // Check that the restored receiver has the same properties
+      expect(restoredReceiver.pjUrl()).toBe(receiver.pjUrl());
+    });
+  
+    it('should preserve functionality after deserialization', async () => {
+      // Serialize the receiver
+      const json = receiver.toJson();
+      
+      // Deserialize back to a receiver
+      const restoredReceiver = PayjoinReceiver.fromJson(json);
+      
+      // Check that the restored receiver can still create requests
+      const request = await restoredReceiver.extractRequest();
+      expect(request).toBeInstanceOf(PayjoinRequest);
+      
+      // Check that the URI builder still works
+      const uriBuilder = restoredReceiver.getPjUriBuilder();
+      const uri = uriBuilder.amount(100000).build();
+      expect(uri).toContain(validAddress);
+    });
+  
+    it('should throw when deserializing invalid JSON', () => {
+      expect(() => PayjoinReceiver.fromJson('{"invalid": "json"}')).toThrow();
+      expect(() => PayjoinReceiver.fromJson('not json at all')).toThrow();
+    });
+  
+    it('should handle complex state preservation', async () => {
+      // Store original PJ URL
+      const originalPjUrl = receiver.pjUrl();
+      
+      // Create a request from the original receiver
+      const originalRequest = await receiver.extractRequest();
+    
+      // Serialize after extracting request
+      const json = receiver.toJson();
+      
+      // Deserialize
+      const restoredReceiver = PayjoinReceiver.fromJson(json);
+      
+      // The restored receiver should have the same PJ URL
+      expect(restoredReceiver.pjUrl()).toBe(originalPjUrl);
+      
+      // Create a new receiver (completely separate) to test unique identifiers
+      const newReceiver = new PayjoinReceiver(
+        validAddress,
+        validDirectory,
+        ohttpKeysBytes,
+        validRelay,
+        BigInt(3600)
+      );
+      
+      // The new receiver should have a different PJ URL
+      expect(newReceiver.pjUrl()).not.toBe(originalPjUrl);
+      
+      // Check that the restored receiver can still generate requests
+      const restoredRequest = await restoredReceiver.extractRequest();
+      expect(restoredRequest).toBeInstanceOf(PayjoinRequest);
+    });
+  });
+
   describe('pjUrl', () => {
-    it.only('should return a valid payjoin URL (pj directory)', () => {
+    it('should return a valid payjoin URL (pj directory)', () => {
       const receiver = new PayjoinReceiver(
         validAddress,
         validDirectory,
@@ -58,7 +146,7 @@ describe('PayjoinReceiver', () => {
         validRelay
       );
       const url = receiver.pjUrl();
-      
+
       // should validate something like this "https://payjo.in/X6PRLYKD6U2E7"
       const urlPattern = new RegExp(`^${validDirectory}/[A-Z0-9]{12}`);
       expect(url).toMatch(urlPattern);
@@ -88,7 +176,7 @@ describe('PayjoinReceiver', () => {
     });
   
     describe('request handling', () => {
-      it.only('should extract request', async () => {
+      it('should extract request', async () => {
         const request = await receiver.extractRequest();
         expect(request).toBeInstanceOf(PayjoinRequest);
       });

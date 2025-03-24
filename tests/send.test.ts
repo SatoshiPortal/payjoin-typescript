@@ -1,12 +1,12 @@
-import { PayjoinSenderBuilder, PayjoinHttp, PayjoinRequest, PayjoinOhttpKeys, PayjoinReceiver } from '../src/index';
+import { PayjoinSenderBuilder, PayjoinHttp, PayjoinRequest, PayjoinOhttpKeys, PayjoinReceiver, PayjoinSender } from '../src/index';
 
-const address = "bcrt1qauwhftqrp57q200pp7wx75dfwfywrmla2v67dw";
+const address = "bcrt1qg2yk630h3x7vjpecquny8m27pkyx547gsnu23t";
+const amount = 10000000;
 const directory = "https://payjo.in";
-const relay = "https://pj.bobspacebkk.com";
+//const relay = "https://pj.bobspacebkk.com";
+const relay = "https://ohttp.cakewallet.com";
 
 async function generateMockPayjoinUri(): Promise<string> {
-  
-  return "bitcoin:bcrt1qg2yk630h3x7vjpecquny8m27pkyx547gsnu23t?amount=0.1&pjos=0&pj=HTTPS://PAYJO.IN/ZCZKUDS4E532W%23RK1QFAP2P57KMT935XZSMQA4FKLSVM07M7UVT5JEFUQ2VCWGLCVYFRDV+OH1QYPM59NK2LXXS4890SUAXXYT25Z2VAPHP0X7YEYCJXGWAG6UG9ZU6NQ+EX1PZTUYEC";
   // Fetch OHTTP keys
   const ohttpKeys = await PayjoinOhttpKeys.fetch(relay, directory);
   
@@ -21,6 +21,7 @@ async function generateMockPayjoinUri(): Promise<string> {
 
   // Get fresh URI
   const uriBuilder = receiver.getPjUriBuilder();
+  uriBuilder.amount(amount);
   const uri = uriBuilder.build();
 
   return uri;
@@ -86,6 +87,114 @@ describe('PayjoinSender', () => {
     jest.clearAllMocks();
   });
 
+  describe('PayjoinSender Serialization', () => {
+    let sender: PayjoinSender;
+  
+    beforeAll(async () => {
+      mockPayjoinUri = await generateMockPayjoinUri();
+      
+      // Create a sender to use in tests
+      const builder = PayjoinSenderBuilder.fromPsbtAndUri(mockPsbt, mockPayjoinUri);
+      sender = await builder.buildRecommended(1.0);
+    });
+  
+    describe('toJson and fromJson', () => {
+      it('should serialize to JSON string', () => {
+        // Get the JSON representation
+        const json = sender.toJson();
+        
+        // Basic checks
+        expect(typeof json).toBe('string');
+        expect(json.length).toBeGreaterThan(0);
+        
+        // Should be valid JSON
+        expect(() => JSON.parse(json)).not.toThrow();
+        
+        // JSON should contain expected properties
+        const parsed = JSON.parse(json);
+        expect(parsed).toHaveProperty('psbt');
+        expect(parsed).toHaveProperty('endpoint');
+      });
+  
+      it('should deserialize from JSON string', () => {
+        // First serialize
+        const json = sender.toJson();
+        
+        // Then deserialize
+        const restoredSender = PayjoinSender.fromJson(json);
+        
+        // Should be an instance of PayjoinSender
+        expect(restoredSender).toBeInstanceOf(PayjoinSender);
+      });
+  
+      it('should preserve state after serialization and deserialization', async () => {
+        // Get the JSON representation
+        const json = sender.toJson();
+        
+        // Restore from JSON
+        const restoredSender = PayjoinSender.fromJson(json);
+        
+        // Both senders should be able to extract v2 requests
+        const originalRequest = await sender.extractV2(relay);
+        const restoredRequest = await restoredSender.extractV2(relay);
+        
+        // Both should produce valid requests
+        expect(originalRequest.url()).toBeTruthy();
+        expect(restoredRequest.url()).toBeTruthy();
+        expect(originalRequest.body()).toBeInstanceOf(Uint8Array);
+        expect(restoredRequest.body()).toBeInstanceOf(Uint8Array);
+      });
+  
+      it('should throw when deserializing invalid JSON', () => {
+        // Test with invalid JSON string
+        expect(() => {
+          PayjoinSender.fromJson('{"invalid": "json"}');
+        }).toThrow();
+        
+        // Test with non-JSON string
+        expect(() => {
+          PayjoinSender.fromJson('not json at all');
+        }).toThrow();
+      });
+  
+      it('should create a new instance when deserializing', () => {
+        // Serialize the sender
+        const json = sender.toJson();
+        
+        // Deserialize to a new instance
+        const restoredSender = PayjoinSender.fromJson(json);
+        
+        // Should be a different object reference
+        expect(restoredSender).not.toBe(sender);
+        
+        // But they should be functionally equivalent
+        expect(restoredSender.toJson()).toBe(json);
+      });
+    });
+  
+    describe('round trip serde with modifications', () => {
+      it('should handle configuration changes between serialization steps', async () => {
+        // Create a fresh sender with output substitution disabled
+        const builder = PayjoinSenderBuilder.fromPsbtAndUri(mockPsbt, mockPayjoinUri);
+        builder.disableOutputSubstitution(true);
+        const configuredSender = await builder.buildRecommended(1.0);
+        
+        // Serialize, deserialize
+        const json = configuredSender.toJson();
+        const restoredSender = PayjoinSender.fromJson(json);
+        
+        // Verify the restoredSender maintains the configuration
+        const originalRequest = await configuredSender.extractV2(relay);
+        const restoredRequest = await restoredSender.extractV2(relay);
+        
+        // Both should produce valid requests (can't directly test output substitution config,
+        // but we can verify request generation works)
+        expect(originalRequest.url()).toBeTruthy();
+        expect(restoredRequest.url()).toBeTruthy();
+      });
+    });
+  });
+
   describe('PayjoinSenderBuilder', () => {
     it('should create a sender builder from PSBT and URI', async () => {
       const builder = PayjoinSenderBuilder.fromPsbtAndUri(mockPsbt, mockPayjoinUri);
@@ -118,7 +227,7 @@ describe('PayjoinSender', () => {
 
   describe('PayjoinV2 Flow', () => {
     // @todo before this test can succeed we need to get valid responses to the mock
-    it.only('should handle complete v2 flow', async () => {
+    it('should handle complete v2 flow', async () => {
       // Create sender
       const builder = PayjoinSenderBuilder.fromPsbtAndUri(mockPsbt, mockPayjoinUri);
       const sender = await builder.buildRecommended(1.0);

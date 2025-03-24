@@ -75,4 +75,20 @@ import native from '../native';
         throw new Error(`Failed to extract v2 request: ${error}`);
       }
     }
+
+    toJson(): string {
+      return this.internal.toJson();
+    }
+
+    static fromJson(json: string): PayjoinSender {
+      try {
+        const internal = native.PayjoinSender.fromJson(json);
+        const sender = Object.create(PayjoinSender.prototype);
+        sender.internal = internal;
+
+        return sender;
+      } catch (error) {
+        throw new Error(`Failed to deserialize sender: ${error}`);
+      }
+    }
   }

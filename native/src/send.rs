@@ -118,4 +118,22 @@ impl PayjoinSender {
             })
             .map_err(|e| napi::Error::from_reason(format!("Failed to extract v2 request: {}", e)))
     }
+
+    #[napi]
+    pub fn to_json(&self) -> napi::Result<String> {
+        // Serialize the inner Sender to JSON
+        serde_json::to_string(&self.inner)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to serialize sender: {}", e)))
+    }
+
+    #[napi]
+    pub fn from_json(json: String) -> napi::Result<Self> {
+        // Deserialize from JSON string to Sender
+        let inner: Sender = serde_json::from_str(&json).map_err(|e| {
+            napi::Error::from_reason(format!("Failed to deserialize sender: {}", e))
+        })?;
+
+        // Return a new PayjoinSender instance
+        Ok(PayjoinSender { inner })
+    }
 }

@@ -82,6 +82,23 @@ impl PayjoinReceiver {
     }
 
     #[napi]
+    pub fn to_json(&self) -> napi::Result<String> {
+        // Serialize the internal state to JSON
+        serde_json::to_string(&self.inner)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to serialize receiver: {}", e)))
+    }
+
+    #[napi(factory)]
+    pub fn from_json(json_str: String) -> napi::Result<Self> {
+        // Deserialize from JSON to create a new receiver
+        let inner: Receiver = serde_json::from_str(&json_str).map_err(|e| {
+            napi::Error::from_reason(format!("Failed to deserialize receiver: {}", e))
+        })?;
+
+        Ok(Self { inner })
+    }
+
+    #[napi]
     pub fn pj_url(&self) -> String {
         self.inner.pj_url().to_string()
     }
