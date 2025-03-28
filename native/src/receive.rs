@@ -2,7 +2,7 @@ use crate::request::PayjoinRequest;
 use crate::uri::PayjoinUriBuilder;
 use napi::bindgen_prelude::{BigInt, Uint8Array};
 use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
-use napi::Result;
+use napi::{Env, Result};
 use napi_derive::napi;
 use ohttp::ClientResponse;
 use payjoin::{
@@ -156,12 +156,29 @@ impl UncheckedProposalWrapper {
         payjoin::bitcoin::consensus::encode::serialize_hex(&tx)
     }
 
+    // Replace the existing check_broadcast_suitability implementation
     #[napi]
     pub fn check_broadcast_suitability(
         &mut self,
+        env: Env,
         min_fee_rate: Option<f64>,
         can_broadcast: napi::JsFunction,
     ) -> napi::Result<MaybeInputsOwnedWrapper> {
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        fn log_debug(message: &str) {
+            let mut file = OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open("/tmp/payjoin-debug.log")
+                .unwrap();
+            writeln!(file, "{}", message).unwrap();
+        }
+
+        log_debug("check_broadcast_suitability: Entered function");
+
+        // Parse the minimum fee rate
         let min_fee_rate = min_fee_rate
             .map(|rate| {
                 FeeRate::from_sat_per_vb(rate as u64)
@@ -169,25 +186,85 @@ impl UncheckedProposalWrapper {
             })
             .transpose()?;
 
-        // Create a threadsafe reference to the callback
-        let can_broadcast: ThreadsafeFunction<String> =
-            can_broadcast.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+        log_debug(&format!(
+            "check_broadcast_suitability: Parsed min_fee_rate: {:?}",
+            min_fee_rate
+        ));
 
-        self.inner
+        // Use the threadsafe function in the Rust logic
+        let result = self
+            .inner
             .clone()
             .check_broadcast_suitability(min_fee_rate, |tx| {
-                // Convert the transaction to a string for JS callback
                 let tx_hex = payjoin::bitcoin::consensus::encode::serialize_hex(&tx);
-                // Call the JS function
-                match can_broadcast.call(Ok(tx_hex), ThreadsafeFunctionCallMode::Blocking) {
-                    napi::Status::Ok => Ok(true),
-                    status => Err(payjoin::Error::Server(
-                        format!("Failed to call can_broadcast callback: {:?}", status).into(),
-                    )),
+
+                log_debug(&format!(
+                    "check_broadcast_suitability: Serialized transaction to hex: {}",
+                    tx_hex
+                ));
+
+                // Create a JS string from the tx_hex
+                let tx_hex_js = env.create_string(&tx_hex).map_err(|e| {
+                    log_debug(&format!(
+                        "check_broadcast_suitability: Error creating string: {}",
+                        e
+                    ));
+                    payjoin::Error::Server(format!("Error creating string: {}", e).into())
+                })?;
+
+                // Call the JavaScript function directly
+                log_debug("check_broadcast_suitability: About to call can_broadcast directly");
+                let result = can_broadcast.call(None, &[tx_hex_js]).map_err(|e| {
+                    log_debug(&format!(
+                        "check_broadcast_suitability: Error calling function: {}",
+                        e
+                    ));
+                    payjoin::Error::Server(format!("Error calling function: {}", e).into())
+                })?;
+
+                // Convert the result to a boolean
+                let is_broadcastable = result
+                    .coerce_to_bool()
+                    .map_err(|e| {
+                        log_debug(&format!(
+                            "check_broadcast_suitability: Error coercing to boolean: {}",
+                            e
+                        ));
+                        payjoin::Error::Server(format!("Error coercing to boolean: {}", e).into())
+                    })?
+                    .get_value()
+                    .map_err(|e| {
+                        log_debug(&format!(
+                            "check_broadcast_suitability: Error getting boolean value: {}",
+                            e
+                        ));
+                        payjoin::Error::Server(format!("Error getting boolean value: {}", e).into())
+                    })?;
+
+                log_debug(&format!(
+                    "check_broadcast_suitability: JavaScript returned: {}",
+                    is_broadcastable
+                ));
+
+                if is_broadcastable {
+                    Ok(true)
+                } else {
+                    Err(payjoin::Error::Server(
+                        "Broadcast not allowed by JavaScript".into(),
+                    ))
                 }
             })
             .map(|m| MaybeInputsOwnedWrapper { inner: m })
-            .map_err(|e| napi::Error::from_reason(format!("Failed to check broadcast: {}", e)))
+            .map_err(|e| {
+                log_debug(&format!(
+                    "check_broadcast_suitability: Error in check_broadcast_suitability: {}",
+                    e
+                ));
+                napi::Error::from_reason(format!("Failed to check broadcast: {}", e))
+            });
+
+        log_debug("check_broadcast_suitability: Exiting function");
+        result
     }
 
     #[napi]
@@ -619,13 +696,20 @@ impl PayjoinProposalWrapper {
     }
 
     #[napi]
-    pub fn process_res(&self, response: Vec<u8>, request: &mut PayjoinRequest) -> napi::Result<()> {
+    pub fn process_res(
+        &self,
+        response: Uint8Array,
+        request: &mut PayjoinRequest,
+    ) -> napi::Result<&Self> {
         let ohttp_ctx = request
             .get_ohttp_ctx()
             .ok_or_else(|| napi::Error::from_reason("Missing OHTTP context"))?;
 
+        let response_vec = response.as_ref();
+
         self.inner
-            .process_res(&response, ohttp_ctx)
+            .process_res(response_vec, ohttp_ctx)
+            .map(|_| self)
             .map_err(|e| napi::Error::from_reason(format!("Failed to process response: {}", e)))
     }
 }

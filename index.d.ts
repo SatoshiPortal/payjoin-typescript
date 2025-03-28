@@ -70,7 +70,7 @@ export declare class PayjoinOhttpKeys {
 export declare class PayjoinRequest {
   url(): string
   body(): Uint8Array
-  post(): Uint8Array
+  post(): Promise<Uint8Array>
   processResponse(response: Uint8Array): PayjoinResponse
 }
 export declare class PayjoinResponse {
@@ -134,5 +134,5 @@ export declare class PayjoinProposalWrapper {
   isOutputSubstitutionDisabled(): boolean
   psbt(): string
   extractV2Req(): PayjoinRequest
-  processRes(response: Array<number>, request: PayjoinRequest): void
+  processRes(response: Uint8Array, request: PayjoinRequest): this
 }

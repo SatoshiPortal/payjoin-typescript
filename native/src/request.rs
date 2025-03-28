@@ -1,8 +1,5 @@
-use env_logger;
-use log::{debug, error, info};
-use napi_derive::napi;
 use napi::bindgen_prelude::Uint8Array;
-use reqwest;
+use napi_derive::napi;
 use ohttp::ClientResponse;
 use payjoin::send::{V1Context, V2GetContext, V2PostContext};
 use std::sync::RwLock;
@@ -50,10 +47,10 @@ impl PayjoinRequest {
         Ok(Uint8Array::new(self.body.clone()))
     }
 
-    #[napi(ts_return_type = "Uint8Array")]
+    #[napi(ts_return_type = "Promise<Uint8Array>")]
     pub async fn post(&self) -> napi::Result<Uint8Array> {
         let client = reqwest::Client::new();
-        
+
         let response = client
             .post(&self.url)
             .header("Content-Type", "message/ohttp-req")
@@ -61,21 +58,16 @@ impl PayjoinRequest {
             .send()
             .await
             .map_err(|e| match e.status() {
-                Some(status_code) => napi::Error::from_reason(
-                    format!("HTTP request failed: {} {}", status_code, e)
-                ),
-                None => napi::Error::from_reason(
-                    format!("No HTTP response: {}", e)
-                ),
+                Some(status_code) => {
+                    napi::Error::from_reason(format!("HTTP request failed: {} {}", status_code, e))
+                }
+                None => napi::Error::from_reason(format!("No HTTP response: {}", e)),
             })?;
 
-        let bytes = response
-            .bytes()
-            .await
-            .map_err(|e| napi::Error::from_reason(
-                format!("Failed to read response body: {}", e)
-            ))?;
-    
+        let bytes = response.bytes().await.map_err(|e| {
+            napi::Error::from_reason(format!("Failed to read response body: {}", e))
+        })?;
+
         Ok(Uint8Array::new(bytes.to_vec()))
     }
 
@@ -189,29 +181,95 @@ impl PayjoinV2Context {
         response: Uint8Array,
         request: &mut PayjoinRequest,
     ) -> napi::Result<Option<String>> {
-        env_logger::init_from_env(env_logger::Env::default().default_filter_or("debug"));
+        use std::fs::OpenOptions;
+        use std::io::Write;
+
+        // Open log file
+        let mut log_file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open("/tmp/payjoin_debug.log")
+            .map_err(|e| napi::Error::from_reason(format!("Failed to open log file: {}", e)))?;
+
+        writeln!(
+            log_file,
+            "V2Context.process_response called with response length: {}",
+            response.len()
+        )
+        .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
+
         let response_vec = response.as_ref();
-        debug!("Processing response of length: {}", response_vec.len());
 
-        let ohttp_ctx = request
-            .get_ohttp_ctx()
-            .ok_or_else(|| napi::Error::from_reason("Missing OHTTP context"))?;
+        writeln!(log_file, "Response vector length: {}", response_vec.len())
+            .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
 
-        match self.inner.process_response(response_vec, ohttp_ctx) {
+        // Preview the first few bytes of response
+        if !response_vec.is_empty() {
+            let preview_len = std::cmp::min(20, response_vec.len());
+            writeln!(
+                log_file,
+                "First {} bytes of response: {:?}",
+                preview_len,
+                &response_vec[..preview_len]
+            )
+            .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
+        }
+
+        let ohttp_ctx = match request.get_ohttp_ctx() {
+            Some(ctx) => {
+                writeln!(log_file, "OHTTP context found").map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to write to log: {}", e))
+                })?;
+                ctx
+            }
+            None => {
+                writeln!(log_file, "Missing OHTTP context").map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to write to log: {}", e))
+                })?;
+                return Err(napi::Error::from_reason("Missing OHTTP context"));
+            }
+        };
+
+        writeln!(log_file, "About to call inner.process_response()")
+            .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
+
+        let result = match self.inner.process_response(response_vec, ohttp_ctx) {
             Ok(Some(psbt)) => {
-                info!("Successfully processed PSBT");
-                Ok(Some(base64::encode(psbt.serialize())))
+                writeln!(log_file, "Successfully processed PSBT").map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to write to log: {}", e))
+                })?;
+
+                // Log the PSBT for debug purposes
+                let psbt_base64 = base64::encode(psbt.serialize());
+                writeln!(
+                    log_file,
+                    "PSBT (first 100 chars): {}",
+                    &psbt_base64[..std::cmp::min(100, psbt_base64.len())]
+                )
+                .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
+
+                Ok(Some(psbt_base64))
             }
             Ok(None) => {
-                info!("Received ACCEPTED status, no PSBT");
+                writeln!(log_file, "Received ACCEPTED status, no PSBT").map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to write to log: {}", e))
+                })?;
                 Ok(None)
             }
             Err(e) => {
-                error!("Error processing response: {}", e);
-                Err(napi::Error::from_reason(format!("Failed to process response: {}", e)))
+                writeln!(log_file, "Error processing response: {}", e).map_err(|e| {
+                    napi::Error::from_reason(format!("Failed to write to log: {}", e))
+                })?;
+                Err(napi::Error::from_reason(format!(
+                    "Failed to process response: {}",
+                    e
+                )))
             }
-        }
+        };
+
+        writeln!(log_file, "Completed processing response")
+            .map_err(|e| napi::Error::from_reason(format!("Failed to write to log: {}", e)))?;
+
+        result
     }
 }
-
-
