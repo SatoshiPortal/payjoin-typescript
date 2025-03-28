@@ -1,8 +1,10 @@
+import { UriBuilder } from "..";
 import { IPayjoinRequest } from "./index";
 
 export interface IPayjoinReceiver {
   pjUrl(): string;
-  extractRequest(): Promise<IPayjoinRequest>;
+  pjUriBuilder(): UriBuilder;
+  extractRequest(): IPayjoinRequest;
   processResponse(
     response: Uint8Array, 
     request: IPayjoinRequest
@@ -101,5 +103,5 @@ export interface IPayjoinProposal {
   isOutputSubstitutionDisabled(): boolean;
   psbt(): string;
   extractV2Req(): Promise<IPayjoinRequest>;
-  processRes(response: Uint8Array, ohttpCtx: any): Promise<void>;
+  processRes(response: Uint8Array, ohttpCtx: any): Promise<IPayjoinProposal>;
 }

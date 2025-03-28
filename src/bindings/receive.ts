@@ -63,14 +63,14 @@ export class PayjoinReceiver implements IPayjoinReceiver {
     return this.internal.pjUrl();
   }
 
-  getPjUriBuilder(): UriBuilder {
+  pjUriBuilder(): UriBuilder {
     const uri = this.internal.pjUriBuilder();
     return uri;
 }
 
-  async extractRequest(): Promise<PayjoinRequest> {
+  extractRequest(): PayjoinRequest {
     try {
-      const request = await this.internal.extractRequest();
+      const request = this.internal.extractRequest();
       return new PayjoinRequest(request);
     } catch (error) {
       throw new Error(`Failed to extract request: ${error}`);
@@ -273,9 +273,10 @@ export class PayjoinProposal implements IPayjoinProposal {
     }
   }
 
-  async processRes(response: Uint8Array, request: PayjoinRequest): Promise<void> {
+  async processRes(response: Uint8Array, request: PayjoinRequest): Promise<PayjoinProposal> {
     try {
       await this.internal.processRes(response, request.nativeHandle);
+      return this;
     } catch (error) {
       throw new Error(`Failed to process response: ${error}`);
     }
