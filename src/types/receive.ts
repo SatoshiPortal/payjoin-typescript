@@ -13,29 +13,28 @@ export interface IPayjoinReceiver {
 
 export interface IUncheckedProposal {
   originalTx(): string;
+  setBroadcastSuitable(suitable: boolean): void;
   checkBroadcastSuitability(
     minFeeRate: number | null,
-    canBroadcast: (tx: string) => Promise<boolean>
   ): Promise<IMaybeInputsOwned>;
   assumeInteractiveReceiver(): IMaybeInputsOwned;
 }
 
 export interface IMaybeInputsOwned {
+  setInputsNotOwned(notOwned: boolean): void
   checkInputsNotOwned(
     isOwned: (script: Uint8Array) => Promise<boolean>
   ): Promise<IMaybeInputsSeen>;
 }
 
 export interface IMaybeInputsSeen {
-  checkNoInputsSeenBefore(
-    isKnown: (outpoint: string) => Promise<boolean>
-  ): Promise<IOutputsUnknown>;
+  setNoInputsSeen(notSeen: boolean): void;
+  checkNoInputsSeenBefore(): Promise<IOutputsUnknown>;
 }
 
 export interface IOutputsUnknown {
-  identifyReceiverOutputs(
-    isReceiverOutput: (script: Uint8Array) => Promise<boolean>
-  ): Promise<IWantsOutputs>;
+  setReceiverOutputs(receiverOutputs: [number, Uint8Array][]): void;
+  identifyReceiverOutputs(): Promise<IWantsOutputs>;
 }
 
 export interface IReplacementOutput {
@@ -64,9 +63,14 @@ export interface IBip32DerivationData {
   child: number;
 }
 
+export interface IWitnessUtxoData {
+  amount: number;
+  script_pub_key: string;
+}
+
 export interface IPsbtInputData {
   non_witness_utxo?: Uint8Array;
-  witness_utxo?: Uint8Array;
+  witness_utxo?: IWitnessUtxoData;
   partial_sigs?: IPartialSigData[];
   sighash_type?: number;
   redeem_script?: Uint8Array;
@@ -76,8 +80,13 @@ export interface IPsbtInputData {
   final_script_witness?: Uint8Array[];
 }
 
+export interface ITxOutpoint {
+  txid: string;
+  vout: number;
+}
+
 export interface IInputPairRequest {
-  prevout: Uint8Array;
+  prevout: ITxOutpoint;
   script_sig: Uint8Array;
   witness: Uint8Array[];
   sequence: number;
@@ -91,17 +100,19 @@ export interface IWantsInputs {
 }
 
 export interface IProvisionalProposal {
+  getPsbt(): Promise<string>;
+  setFinalizedPsbt(psbt: string): void;
   finalizeProposal(
-    walletProcessPsbt: (psbt: string) => Promise<string>,
     minFeerateSatPerVb: number | null,
     maxFeerateSatPerVb: number
   ): Promise<IPayjoinProposal>;
 }
 
 export interface IPayjoinProposal {
-  utxosToLocked(): string[];
+  utxosToBeLocked(): string[];
   isOutputSubstitutionDisabled(): boolean;
   psbt(): string;
+  getTxid(): string;
   extractV2Req(): Promise<IPayjoinRequest>;
   processRes(response: Uint8Array, ohttpCtx: any): Promise<IPayjoinProposal>;
 }

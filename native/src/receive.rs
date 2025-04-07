@@ -1,21 +1,13 @@
 use crate::request::PayjoinRequest;
 use crate::uri::PayjoinUriBuilder;
 use napi::bindgen_prelude::{BigInt, Uint8Array};
-use napi::threadsafe_function::{ThreadsafeFunction, ThreadsafeFunctionCallMode};
-use napi::{Env, Result};
+use napi::Result;
 use napi_derive::napi;
 use ohttp::ClientResponse;
 use payjoin::{
     bitcoin::{
-        bip32::{ChildNumber, DerivationPath, Fingerprint},
-        consensus::Decodable,
-        ecdsa::Signature,
-        psbt::Input,
-        psbt::Psbt,
-        psbt::PsbtSighashType,
-        secp256k1::PublicKey as Secp256k1PublicKey,
-        Address, Amount, FeeRate, OutPoint, PublicKey, Script, ScriptBuf, Sequence, Transaction,
-        TxIn, TxOut, Witness,
+        consensus::Decodable, psbt::Input, psbt::Psbt, Address, Amount, FeeRate, OutPoint, Script,
+        ScriptBuf, Sequence, Transaction, TxIn, TxOut, Witness,
     },
     receive::v2::{
         MaybeInputsOwned, MaybeInputsSeen, OutputsUnknown, PayjoinProposal, ProvisionalProposal,
@@ -62,7 +54,7 @@ impl PayjoinReceiver {
         let ohttp_relay = Url::parse(&ohttp_relay)
             .map_err(|e| napi::Error::from_reason(format!("Invalid relay URL: {}", e)))?;
 
-        let ohttp_keys = OhttpKeys::decode(&ohttp_keys.to_vec())
+        let ohttp_keys = OhttpKeys::decode(ohttp_keys.as_ref())
             .map_err(|e| napi::Error::from_reason(format!("Invalid OHTTP keys: {}", e)))?;
 
         let expire_after = expiry_seconds.map(|seconds| {
@@ -138,14 +130,32 @@ impl PayjoinReceiver {
 
         self.inner
             .process_res(response_vec, ohttp_ctx)
-            .map(|proposal| proposal.map(|p| UncheckedProposalWrapper { inner: p }))
+            .map(|proposal| {
+                proposal.map(|p| UncheckedProposalWrapper {
+                    inner: p,
+                    broadcast_suitable: false,
+                })
+            })
             .map_err(|e| napi::Error::from_reason(format!("Failed to process response: {}", e)))
     }
+}
+
+fn log_debug(message: &str) {
+    use std::fs::OpenOptions;
+    use std::io::Write;
+
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open("/tmp/payjoin-debug.log")
+        .unwrap();
+    writeln!(file, "{}", message).unwrap();
 }
 
 #[napi]
 pub struct UncheckedProposalWrapper {
     inner: UncheckedProposal,
+    broadcast_suitable: bool,
 }
 
 #[napi]
@@ -156,26 +166,16 @@ impl UncheckedProposalWrapper {
         payjoin::bitcoin::consensus::encode::serialize_hex(&tx)
     }
 
-    // Replace the existing check_broadcast_suitability implementation
+    #[napi]
+    pub fn set_broadcast_suitable(&mut self, suitable: bool) {
+        self.broadcast_suitable = suitable;
+    }
+
     #[napi]
     pub fn check_broadcast_suitability(
         &mut self,
-        env: Env,
         min_fee_rate: Option<f64>,
-        can_broadcast: napi::JsFunction,
     ) -> napi::Result<MaybeInputsOwnedWrapper> {
-        use std::fs::OpenOptions;
-        use std::io::Write;
-
-        fn log_debug(message: &str) {
-            let mut file = OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open("/tmp/payjoin-debug.log")
-                .unwrap();
-            writeln!(file, "{}", message).unwrap();
-        }
-
         log_debug("check_broadcast_suitability: Entered function");
 
         // Parse the minimum fee rate
@@ -195,66 +195,20 @@ impl UncheckedProposalWrapper {
         let result = self
             .inner
             .clone()
-            .check_broadcast_suitability(min_fee_rate, |tx| {
-                let tx_hex = payjoin::bitcoin::consensus::encode::serialize_hex(&tx);
-
-                log_debug(&format!(
-                    "check_broadcast_suitability: Serialized transaction to hex: {}",
-                    tx_hex
-                ));
-
-                // Create a JS string from the tx_hex
-                let tx_hex_js = env.create_string(&tx_hex).map_err(|e| {
-                    log_debug(&format!(
-                        "check_broadcast_suitability: Error creating string: {}",
-                        e
-                    ));
-                    payjoin::Error::Server(format!("Error creating string: {}", e).into())
-                })?;
-
-                // Call the JavaScript function directly
-                log_debug("check_broadcast_suitability: About to call can_broadcast directly");
-                let result = can_broadcast.call(None, &[tx_hex_js]).map_err(|e| {
-                    log_debug(&format!(
-                        "check_broadcast_suitability: Error calling function: {}",
-                        e
-                    ));
-                    payjoin::Error::Server(format!("Error calling function: {}", e).into())
-                })?;
-
-                // Convert the result to a boolean
-                let is_broadcastable = result
-                    .coerce_to_bool()
-                    .map_err(|e| {
-                        log_debug(&format!(
-                            "check_broadcast_suitability: Error coercing to boolean: {}",
-                            e
-                        ));
-                        payjoin::Error::Server(format!("Error coercing to boolean: {}", e).into())
-                    })?
-                    .get_value()
-                    .map_err(|e| {
-                        log_debug(&format!(
-                            "check_broadcast_suitability: Error getting boolean value: {}",
-                            e
-                        ));
-                        payjoin::Error::Server(format!("Error getting boolean value: {}", e).into())
-                    })?;
-
-                log_debug(&format!(
-                    "check_broadcast_suitability: JavaScript returned: {}",
-                    is_broadcastable
-                ));
-
-                if is_broadcastable {
+            .check_broadcast_suitability(min_fee_rate, |_tx| {
+                // return the value of broadcast_suitable previously set with set_broadcast_suitable
+                if self.broadcast_suitable {
                     Ok(true)
                 } else {
                     Err(payjoin::Error::Server(
-                        "Broadcast not allowed by JavaScript".into(),
+                        "Broadcast not suitable".to_string().into(),
                     ))
                 }
             })
-            .map(|m| MaybeInputsOwnedWrapper { inner: m })
+            .map(|m| MaybeInputsOwnedWrapper {
+                inner: m,
+                inputs_not_owned: false,
+            })
             .map_err(|e| {
                 log_debug(&format!(
                     "check_broadcast_suitability: Error in check_broadcast_suitability: {}",
@@ -271,6 +225,7 @@ impl UncheckedProposalWrapper {
     pub fn assume_interactive_receiver(&mut self) -> MaybeInputsOwnedWrapper {
         MaybeInputsOwnedWrapper {
             inner: self.inner.clone().assume_interactive_receiver(),
+            inputs_not_owned: false,
         }
     }
 }
@@ -278,33 +233,42 @@ impl UncheckedProposalWrapper {
 #[napi]
 pub struct MaybeInputsOwnedWrapper {
     inner: MaybeInputsOwned,
+    inputs_not_owned: bool,
 }
 
 #[napi]
 impl MaybeInputsOwnedWrapper {
     #[napi]
-    pub fn check_inputs_not_owned(
-        &mut self,
-        is_owned: napi::JsFunction,
-    ) -> napi::Result<MaybeInputsSeenWrapper> {
-        // Create a threadsafe reference to the callback
-        let is_owned: ThreadsafeFunction<Vec<u8>> =
-            is_owned.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    pub fn set_inputs_not_owned(&mut self, not_owned: bool) {
+        log_debug(&format!(
+            "set_inputs_not_owned: Setting inputs_not_owned to {}",
+            not_owned
+        ));
+        self.inputs_not_owned = not_owned;
+    }
 
+    #[napi]
+    pub fn check_inputs_not_owned(&mut self) -> napi::Result<MaybeInputsSeenWrapper> {
         self.inner
             .clone()
-            .check_inputs_not_owned(|script| {
-                match is_owned.call(
-                    Ok(script.as_bytes().to_vec()),
-                    ThreadsafeFunctionCallMode::Blocking,
-                ) {
-                    napi::Status::Ok => Ok(true),
-                    status => Err(payjoin::Error::Server(
-                        format!("Failed to call is_owned callback: {:?}", status).into(),
-                    )),
+            .check_inputs_not_owned(|_script| {
+                log_debug("check_inputs_not_owned: Checking inputs not owned");
+                // return the value of inputs_not_owned previously set with set_inputs_not_owned
+                if self.inputs_not_owned {
+                    log_debug("check_inputs_not_owned: Inputs not owned");
+                    // the actual callback function is "is_owned" so we inverse the logic
+                    Ok(false) // Inputs are not owned
+                } else {
+                    log_debug("check_inputs_not_owned: Inputs are owned");
+                    Err(payjoin::Error::Server(
+                        "Input(s) are owned".to_string().into(),
+                    ))
                 }
             })
-            .map(|m| MaybeInputsSeenWrapper { inner: m })
+            .map(|m| MaybeInputsSeenWrapper {
+                inner: m,
+                no_inputs_seen: false,
+            })
             .map_err(|e| napi::Error::from_reason(format!("Failed to check inputs: {}", e)))
     }
 }
@@ -312,30 +276,39 @@ impl MaybeInputsOwnedWrapper {
 #[napi]
 pub struct MaybeInputsSeenWrapper {
     inner: MaybeInputsSeen,
+    no_inputs_seen: bool,
 }
 
 #[napi]
 impl MaybeInputsSeenWrapper {
     #[napi]
-    pub fn check_no_inputs_seen_before(
-        &mut self,
-        is_known: napi::JsFunction,
-    ) -> napi::Result<OutputsUnknownWrapper> {
-        let is_known: ThreadsafeFunction<String> =
-            is_known.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    pub fn set_no_inputs_seen(&mut self, no_inputs_seen: bool) {
+        log_debug(&format!(
+            "set_no_inputs_seen: Setting no_inputs_seen to {}",
+            no_inputs_seen
+        ));
+        self.no_inputs_seen = no_inputs_seen;
+    }
 
+    #[napi]
+    pub fn check_no_inputs_seen_before(&mut self) -> napi::Result<OutputsUnknownWrapper> {
         self.inner
             .clone()
-            .check_no_inputs_seen_before(|outpoint| {
-                let outpoint_str = outpoint.to_string();
-                match is_known.call(Ok(outpoint_str), ThreadsafeFunctionCallMode::Blocking) {
-                    napi::Status::Ok => Ok(true),
-                    status => Err(payjoin::Error::Server(
-                        format!("Failed to call is_known callback: {:?}", status).into(),
-                    )),
+            .check_no_inputs_seen_before(|_outpoint| {
+                // return the value of inputs_not_owned previously set with set_inputs_not_owned
+                if self.no_inputs_seen {
+                    // the actual callback function is "is_owned" so we inverse the logic
+                    Ok(false) // Inputs are not owned
+                } else {
+                    Err(payjoin::Error::Server(
+                        "Input(s) are known".to_string().into(),
+                    ))
                 }
             })
-            .map(|o| OutputsUnknownWrapper { inner: o })
+            .map(|o| OutputsUnknownWrapper {
+                inner: o,
+                receiver_outputs: vec![],
+            })
             .map_err(|e| napi::Error::from_reason(format!("Failed to check inputs: {}", e)))
     }
 }
@@ -343,30 +316,31 @@ impl MaybeInputsSeenWrapper {
 #[napi]
 pub struct OutputsUnknownWrapper {
     inner: OutputsUnknown,
+    receiver_outputs: Vec<(u8, Uint8Array)>,
 }
 
 #[napi]
 impl OutputsUnknownWrapper {
     #[napi]
-    pub fn identify_receiver_outputs(
-        &mut self,
-        is_receiver_output: napi::JsFunction,
-    ) -> napi::Result<WantsOutputsWrapper> {
-        let is_receiver_output: ThreadsafeFunction<Vec<u8>> =
-            is_receiver_output.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
+    pub fn set_receiver_outputs(&mut self, receiver_outputs: Vec<(u8, Uint8Array)>) {
+        self.receiver_outputs = receiver_outputs;
+    }
 
+    #[napi]
+    pub fn identify_receiver_outputs(&mut self) -> napi::Result<WantsOutputsWrapper> {
         self.inner
             .clone()
             .identify_receiver_outputs(|script| {
-                match is_receiver_output.call(
-                    Ok(script.as_bytes().to_vec()),
-                    ThreadsafeFunctionCallMode::Blocking,
-                ) {
-                    napi::Status::Ok => Ok(true),
-                    status => Err(payjoin::Error::Server(
-                        format!("Failed to call is_receiver_output callback: {:?}", status).into(),
-                    )),
+                log_debug("identify_receiver_outputs: Identifying receiver outputs");
+                // Convert the script to a Vec<u8>
+                let script_bytes = script.to_bytes();
+                // Find the corresponding output in the receiver_outputs vector
+                for output in &self.receiver_outputs {
+                    if output.1.to_vec() == script_bytes {
+                        return Ok(true);
+                    }
                 }
+                Ok(false)
             })
             .map(|w| WantsOutputsWrapper { inner: w })
             .map_err(|e| napi::Error::from_reason(format!("Failed to identify outputs: {}", e)))
@@ -398,7 +372,7 @@ impl WantsOutputsWrapper {
     ) -> napi::Result<WantsOutputsWrapper> {
         self.inner
             .clone()
-            .substitute_receiver_script(&Script::from_bytes(&output_script))
+            .substitute_receiver_script(Script::from_bytes(&output_script))
             .map(|w| WantsOutputsWrapper { inner: w })
             .map_err(|e| napi::Error::from_reason(format!("Failed to substitute script: {}", e)))
     }
@@ -422,7 +396,7 @@ impl WantsOutputsWrapper {
 
         self.inner
             .clone()
-            .replace_receiver_outputs(outputs, &Script::from_bytes(&drain_script))
+            .replace_receiver_outputs(outputs, Script::from_bytes(&drain_script))
             .map(|w| WantsOutputsWrapper { inner: w })
             .map_err(|e| napi::Error::from_reason(format!("Failed to replace outputs: {}", e)))
     }
@@ -449,9 +423,15 @@ pub struct Bip32DerivationData {
 }
 
 #[napi(object)]
+pub struct WitnessUtxoData {
+    pub amount: f64,            // Amount in BTC
+    pub script_pub_key: String, // Script in hex format
+}
+
+#[napi(object)]
 pub struct PsbtInputData {
     pub non_witness_utxo: Option<Vec<u8>>,
-    pub witness_utxo: Option<Vec<u8>>,
+    pub witness_utxo: Option<WitnessUtxoData>,
     pub partial_sigs: Option<Vec<PartialSigData>>,
     pub sighash_type: Option<u32>,
     pub redeem_script: Option<Vec<u8>>,
@@ -463,25 +443,45 @@ pub struct PsbtInputData {
 }
 
 #[napi(object)]
+pub struct TxOutpoint {
+    pub txid: String, // Transaction ID as hex string
+    pub vout: u32,    // Output index
+}
+
+#[napi(object)]
 pub struct InputPairRequest {
-    pub prevout: Vec<u8>,         // serialized outpoint
-    pub script_sig: Vec<u8>,      // script sig
-    pub witness: Vec<Vec<u8>>,    // witness data
-    pub sequence: u32,            // sequence number
-    pub psbt_data: PsbtInputData, // PSBT input data
+    pub prevout: TxOutpoint,
+    pub script_sig: Option<Vec<u8>>,   // script sig
+    pub witness: Option<Vec<Vec<u8>>>, // witness data
+    pub sequence: Option<u32>,         // sequence number
+    pub psbt_data: PsbtInputData,      // PSBT input data
 }
 
 impl InputPairRequest {
     pub fn into_input_pair(self) -> napi::Result<InputPair> {
-        let outpoint = OutPoint::consensus_decode(&mut &self.prevout[..])
-            .map_err(|e| napi::Error::from_reason(format!("Invalid outpoint: {}", e)))?;
+        // Create txid directly from the hex string
+        let txid = payjoin::bitcoin::Txid::from_str(&self.prevout.txid)
+            .map_err(|e| napi::Error::from_reason(format!("Invalid txid hex: {}", e)))?;
+
+        let outpoint = OutPoint {
+            txid,
+            vout: self.prevout.vout,
+        };
+        log_debug(&format!(
+            "InputPairRequest::into_input_pair: outpoint: {:?}",
+            outpoint
+        ));
 
         let txin = TxIn {
             previous_output: outpoint,
-            script_sig: ScriptBuf::from_bytes(self.script_sig),
-            sequence: Sequence::from_consensus(self.sequence),
-            witness: Witness::from(self.witness),
+            script_sig: ScriptBuf::from_bytes(self.script_sig.unwrap_or_default()),
+            sequence: Sequence::from_consensus(self.sequence.unwrap_or(0xffffffff)),
+            witness: Witness::from(self.witness.unwrap_or_default()),
         };
+        log_debug(&format!(
+            "InputPairRequest::into_input_pair: txin: {:?}",
+            txin
+        ));
 
         let mut psbtin = Input::default();
 
@@ -493,73 +493,102 @@ impl InputPairRequest {
                 })?);
         }
 
+        if let Some(witness_utxo) = &self.psbt_data.witness_utxo {
+            log_debug(&format!(
+                "InputPairRequest::into_input_pair: psbt_data_witness_utxo.amount: {:?}",
+                witness_utxo.amount
+            ));
+            log_debug(&format!(
+                "InputPairRequest::into_input_pair: psbt_data_witness_utxo.script_pub_key: {:?}",
+                witness_utxo.script_pub_key
+            ));
+        } else {
+            log_debug("InputPairRequest::into_input_pair: No witness_utxo provided");
+        }
+
         // Handle witness UTXO
         if let Some(utxo) = self.psbt_data.witness_utxo {
-            psbtin.witness_utxo =
-                Some(TxOut::consensus_decode(&mut &utxo[..]).map_err(|e| {
-                    napi::Error::from_reason(format!("Invalid witness UTXO: {}", e))
-                })?);
+            // Convert amount from BTC to satoshis
+            let amount_sat = (utxo.amount * 100_000_000.0) as u64;
+            log_debug(&format!(
+                "InputPairRequest::into_input_pair: amount_sat: {:?}",
+                amount_sat
+            ));
+            log_debug(&format!(
+                "InputPairRequest::into_input_pair: script_pub_key: {:?}",
+                utxo.script_pub_key
+            ));
+            // Create TxOut with the amount and script
+            psbtin.witness_utxo = Some(TxOut {
+                value: Amount::from_sat(amount_sat),
+                script_pubkey: ScriptBuf::from_hex(&utxo.script_pub_key)
+                    .map_err(|e| napi::Error::from_reason(format!("Invalid script hex: {}", e)))?,
+            });
         }
 
         // Handle partial signatures
-        if let Some(sigs) = self.psbt_data.partial_sigs {
-            for sig_data in sigs {
-                psbtin.partial_sigs.insert(
-                    PublicKey::from_slice(&sig_data.pubkey)
-                        .map_err(|e| napi::Error::from_reason(format!("Invalid pubkey: {}", e)))?,
-                    Signature::from_slice(&sig_data.signature).map_err(|e| {
-                        napi::Error::from_reason(format!("Invalid signature: {}", e))
-                    })?,
-                );
-            }
-        }
+        // if let Some(sigs) = self.psbt_data.partial_sigs {
+        //     for sig_data in sigs {
+        //         psbtin.partial_sigs.insert(
+        //             PublicKey::from_slice(&sig_data.pubkey)
+        //                 .map_err(|e| napi::Error::from_reason(format!("Invalid pubkey: {}", e)))?,
+        //             Signature::from_slice(&sig_data.signature).map_err(|e| {
+        //                 napi::Error::from_reason(format!("Invalid signature: {}", e))
+        //             })?,
+        //         );
+        //     }
+        // }
 
         // Handle sighash type
-        if let Some(sighash) = self.psbt_data.sighash_type {
-            psbtin.sighash_type = Some(PsbtSighashType::from_u32(sighash));
-        }
+        // if let Some(sighash) = self.psbt_data.sighash_type {
+        //     psbtin.sighash_type = Some(PsbtSighashType::from_u32(sighash));
+        // }
 
         // Handle redeem script
-        if let Some(script) = self.psbt_data.redeem_script {
-            psbtin.redeem_script = Some(ScriptBuf::from_bytes(script));
-        }
+        // if let Some(script) = self.psbt_data.redeem_script {
+        //     psbtin.redeem_script = Some(ScriptBuf::from_bytes(script));
+        // }
 
         // Handle witness script
-        if let Some(script) = self.psbt_data.witness_script {
-            psbtin.witness_script = Some(ScriptBuf::from_bytes(script));
-        }
+        // if let Some(script) = self.psbt_data.witness_script {
+        //     psbtin.witness_script = Some(ScriptBuf::from_bytes(script));
+        // }
 
         // Handle BIP32 derivation paths
-        if let Some(derivation_data) = self.psbt_data.bip32_derivation {
-            for data in derivation_data {
-                let pubkey = Secp256k1PublicKey::from_slice(&data.pubkey)
-                    .map_err(|e| napi::Error::from_reason(format!("Invalid pubkey: {}", e)))?;
+        // if let Some(derivation_data) = self.psbt_data.bip32_derivation {
+        //     for data in derivation_data {
+        //         let pubkey = Secp256k1PublicKey::from_slice(&data.pubkey)
+        //             .map_err(|e| napi::Error::from_reason(format!("Invalid pubkey: {}", e)))?;
 
-                // Convert the first 4 bytes to a fingerprint
-                let mut fingerprint_bytes = [0u8; 4];
-                fingerprint_bytes.copy_from_slice(&data.fingerprint_path[0..4]);
-                let fingerprint = Fingerprint::from(fingerprint_bytes);
+        //         // Convert the first 4 bytes to a fingerprint
+        //         let mut fingerprint_bytes = [0u8; 4];
+        //         fingerprint_bytes.copy_from_slice(&data.fingerprint_path[0..4]);
+        //         let fingerprint = Fingerprint::from(fingerprint_bytes);
 
-                // Convert child number to a derivation path
-                let child_number = ChildNumber::from_normal_idx(data.child).map_err(|e| {
-                    napi::Error::from_reason(format!("Invalid child number: {}", e))
-                })?;
-                let path = DerivationPath::from(vec![child_number]);
+        //         // Convert child number to a derivation path
+        //         let child_number = ChildNumber::from_normal_idx(data.child).map_err(|e| {
+        //             napi::Error::from_reason(format!("Invalid child number: {}", e))
+        //         })?;
+        //         let path = DerivationPath::from(vec![child_number]);
 
-                psbtin.bip32_derivation.insert(pubkey, (fingerprint, path));
-            }
-        }
+        //         psbtin.bip32_derivation.insert(pubkey, (fingerprint, path));
+        //     }
+        // }
 
         // Handle final scriptSig
-        if let Some(script_sig) = self.psbt_data.final_script_sig {
-            psbtin.final_script_sig = Some(ScriptBuf::from_bytes(script_sig));
-        }
+        // if let Some(script_sig) = self.psbt_data.final_script_sig {
+        //     psbtin.final_script_sig = Some(ScriptBuf::from_bytes(script_sig));
+        // }
 
         // Handle final scriptWitness
-        if let Some(witness_stack) = self.psbt_data.final_script_witness {
-            psbtin.final_script_witness = Some(Witness::from_slice(&witness_stack));
-        }
+        // if let Some(witness_stack) = self.psbt_data.final_script_witness {
+        //     psbtin.final_script_witness = Some(Witness::from_slice(&witness_stack));
+        // }
 
+        log_debug(&format!(
+            "InputPairRequest::into_input_pair: psbtin: {:?}",
+            psbtin
+        ));
         InputPair::new(txin, psbtin)
             .map_err(|e| napi::Error::from_reason(format!("Failed to create InputPair: {}", e)))
     }
@@ -600,21 +629,40 @@ impl WantsInputsWrapper {
             .commit_inputs();
 
         // Return the proposal
-        Ok(ProvisionalProposalWrapper { inner: result })
+        Ok(ProvisionalProposalWrapper {
+            inner: result,
+            finalized_psbt: None,
+        })
     }
 }
 
 #[napi]
 pub struct ProvisionalProposalWrapper {
     inner: ProvisionalProposal,
+    finalized_psbt: Option<Psbt>,
 }
 
 #[napi]
 impl ProvisionalProposalWrapper {
     #[napi]
+    pub fn get_psbt(&self) -> Result<String> {
+        let provisional_proposal = self.inner.clone();
+        let payjoin_proposal = provisional_proposal
+            .finalize_proposal(|psbt| Ok(psbt.clone()), None, FeeRate::ZERO)
+            .map_err(|e| napi::Error::from_reason(format!("Failed to finalize proposal: {}", e)))?;
+        let psbt = payjoin_proposal.psbt().clone();
+
+        Ok(psbt.to_string())
+    }
+
+    #[napi]
+    pub fn set_finalized_psbt(&mut self, psbt: String) {
+        self.finalized_psbt = Some(Psbt::from_str(&psbt).expect("Failed to parse finalized PSBT"));
+    }
+
+    #[napi]
     pub fn finalize_proposal(
         &mut self,
-        wallet_process_psbt: napi::JsFunction,
         min_feerate_sat_per_vb: Option<f64>,
         max_feerate_sat_per_vb: f64,
     ) -> napi::Result<PayjoinProposalWrapper> {
@@ -628,24 +676,18 @@ impl ProvisionalProposalWrapper {
         let max_fee_rate = FeeRate::from_sat_per_vb(max_feerate_sat_per_vb as u64)
             .ok_or_else(|| napi::Error::from_reason("Invalid max fee rate"))?;
 
-        let wallet_process_psbt: ThreadsafeFunction<String> =
-            wallet_process_psbt.create_threadsafe_function(0, |ctx| Ok(vec![ctx.value]))?;
-
         self.inner
             .clone()
             .finalize_proposal(
-                |psbt| {
-                    let psbt_str = psbt.to_string();
-                    match wallet_process_psbt
-                        .call(Ok(psbt_str.clone()), ThreadsafeFunctionCallMode::Blocking)
-                    {
-                        napi::Status::Ok => Psbt::from_str(&psbt_str).map_err(|e| {
-                            payjoin::Error::Server(format!("Failed to parse PSBT: {}", e).into())
-                        }),
-                        status => Err(payjoin::Error::Server(
-                            format!("Failed to call wallet_process_psbt callback: {:?}", status)
-                                .into(),
-                        )),
+                |_psbt| {
+                    // Check if we already have a finalized PSBT
+                    if let Some(psbt) = &self.finalized_psbt {
+                        Ok(psbt.clone())
+                    } else {
+                        // Return an error instead of processing normally
+                        Err(payjoin::Error::Server(
+                            "No finalized PSBT available".to_string().into(),
+                        ))
                     }
                 },
                 min_fee_rate,
@@ -682,6 +724,15 @@ impl PayjoinProposalWrapper {
     }
 
     #[napi]
+    pub fn get_txid(&self) -> String {
+        let payjoin_psbt = self.inner.psbt().clone();
+        payjoin_psbt
+            .extract_tx_unchecked_fee_rate()
+            .compute_txid()
+            .to_string()
+    }
+
+    #[napi]
     pub fn extract_v2_req(&mut self) -> napi::Result<PayjoinRequest> {
         let (request, ohttp_ctx) = self.inner.extract_v2_req().map_err(|e| {
             napi::Error::from_reason(format!("Failed to extract v2 request: {}", e))
@@ -707,9 +758,19 @@ impl PayjoinProposalWrapper {
 
         let response_vec = response.as_ref();
 
-        self.inner
-            .process_res(response_vec, ohttp_ctx)
-            .map(|_| self)
-            .map_err(|e| napi::Error::from_reason(format!("Failed to process response: {}", e)))
+        match self.inner.process_res(response_vec, ohttp_ctx) {
+            Ok(_) => {
+                log_debug("PayjoinProposalWrapper::process_res: Successfully processed response");
+                Ok(self)
+            }
+            Err(e) => {
+                let error_msg = format!("Failed to process response: {}", e);
+                log_debug(&format!(
+                    "PayjoinProposalWrapper::process_res: Error: {}",
+                    error_msg
+                ));
+                Err(napi::Error::from_reason(error_msg))
+            }
+        }
     }
 }

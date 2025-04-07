@@ -104,14 +104,20 @@ export class UncheckedProposal implements IUncheckedProposal {
     }
   }
 
+  setBroadcastSuitable(suitable: boolean) {
+    try {
+      this.internal.setBroadcastSuitable(suitable);
+    } catch (error) {
+      throw new Error(`Failed to set broadcast suitability: ${error}`);
+    }
+  }
+
   async checkBroadcastSuitability(
     minFeeRate: number | null,
-    canBroadcast: (tx: string) => Promise<boolean>
   ): Promise<MaybeInputsOwned> {
     try {
       const result = await this.internal.checkBroadcastSuitability(
         minFeeRate,
-        canBroadcast
       );
       return new MaybeInputsOwned(result);
     } catch (error) {
@@ -131,6 +137,14 @@ export class UncheckedProposal implements IUncheckedProposal {
 export class MaybeInputsOwned implements IMaybeInputsOwned {
   constructor(private readonly internal: any) {}
 
+  setInputsNotOwned(notOwned: boolean): void {
+    try {
+      this.internal.setInputsNotOwned(notOwned);
+    } catch (error) {
+      throw new Error(`Failed to set inputs not owned: ${error}`);
+    }
+  }
+
   async checkInputsNotOwned(
     isOwned: (script: Uint8Array) => Promise<boolean>
   ): Promise<MaybeInputsSeen> {
@@ -146,11 +160,17 @@ export class MaybeInputsOwned implements IMaybeInputsOwned {
 export class MaybeInputsSeen implements IMaybeInputsSeen {
   constructor(private readonly internal: any) {}
 
-  async checkNoInputsSeenBefore(
-    isKnown: (outpoint: string) => Promise<boolean>
-  ): Promise<OutputsUnknown> {
+  setNoInputsSeen(notSeen: boolean): void {
     try {
-      const result = await this.internal.checkNoInputsSeenBefore(isKnown);
+      this.internal.setNoInputsSeen(notSeen);
+    } catch (error) {
+      throw new Error(`Failed to set no inputs seen: ${error}`);
+    }
+  }
+
+  async checkNoInputsSeenBefore(): Promise<OutputsUnknown> {
+    try {
+      const result = await this.internal.checkNoInputsSeenBefore();
       return new OutputsUnknown(result);
     } catch (error) {
       throw new Error(`Failed to check inputs seen before: ${error}`);
@@ -161,11 +181,17 @@ export class MaybeInputsSeen implements IMaybeInputsSeen {
 export class OutputsUnknown implements IOutputsUnknown {
   constructor(private readonly internal: any) {}
 
-  async identifyReceiverOutputs(
-    isReceiverOutput: (script: Uint8Array) => Promise<boolean>
-  ): Promise<WantsOutputs> {
+  setReceiverOutputs(receiverOutputs: [number, Uint8Array][]): void {
     try {
-      const result = await this.internal.identifyReceiverOutputs(isReceiverOutput);
+      this.internal.setReceiverOutputs(receiverOutputs);
+    } catch (error) {
+      throw new Error(`Failed to set receiver outputs: ${error}`);
+    }
+  }
+
+  async identifyReceiverOutputs(): Promise<WantsOutputs> {
+    try {
+      const result = await this.internal.identifyReceiverOutputs();
       return new WantsOutputs(result);
     } catch (error) {
       throw new Error(`Failed to identify receiver outputs: ${error}`);
@@ -231,14 +257,29 @@ export class WantsInputs implements IWantsInputs {
 export class ProvisionalProposal implements IProvisionalProposal {
   constructor(private readonly internal: any) {}
 
+  async getPsbt(): Promise<string> {
+    try {
+      const psbt = await this.internal.getPsbt();
+      return psbt.toString();
+    } catch (error) {
+      throw new Error(`Failed to get PSBT: ${error}`);
+    }
+  }
+
+  setFinalizedPsbt(psbt: string): void {
+    try {
+      this.internal.setFinalizedPsbt(psbt);
+    } catch (error) {
+      throw new Error(`Failed to set finalized PSBT: ${error}`);
+    }
+  }
+
   async finalizeProposal(
-    walletProcessPsbt: (psbt: string) => Promise<string>,
     minFeerateSatPerVb: number | null,
     maxFeerateSatPerVb: number
   ): Promise<PayjoinProposal> {
     try {
       const result = await this.internal.finalizeProposal(
-        walletProcessPsbt,
         minFeerateSatPerVb,
         maxFeerateSatPerVb
       );
@@ -252,8 +293,8 @@ export class ProvisionalProposal implements IProvisionalProposal {
 export class PayjoinProposal implements IPayjoinProposal {
   constructor(private readonly internal: any) {}
 
-  utxosToLocked(): string[] {
-    return this.internal.utxosToLocked();
+  utxosToBeLocked(): string[] {
+    return this.internal.utxosToBeLocked();
   }
 
   isOutputSubstitutionDisabled(): boolean {
@@ -262,6 +303,14 @@ export class PayjoinProposal implements IPayjoinProposal {
 
   psbt(): string {
     return this.internal.psbt();
+  }
+
+  getTxid(): string {
+    try {
+      return this.internal.getTxid();
+    } catch (error) {
+      throw new Error(`Failed to get txid: ${error}`);
+    }
   }
 
   async extractV2Req(): Promise<PayjoinRequest> {
@@ -275,8 +324,8 @@ export class PayjoinProposal implements IPayjoinProposal {
 
   async processRes(response: Uint8Array, request: PayjoinRequest): Promise<PayjoinProposal> {
     try {
-      await this.internal.processRes(response, request.nativeHandle);
-      return this;
+      const res = await this.internal.processRes(response, request.nativeHandle);
+      return new PayjoinProposal(res);
     } catch (error) {
       throw new Error(`Failed to process response: ${error}`);
     }

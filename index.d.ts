@@ -16,9 +16,13 @@ export interface Bip32DerivationData {
   fingerprintPath: Array<number>
   child: number
 }
+export interface WitnessUtxoData {
+  amount: number
+  scriptPubKey: string
+}
 export interface PsbtInputData {
   nonWitnessUtxo?: Array<number>
-  witnessUtxo?: Array<number>
+  witnessUtxo?: WitnessUtxoData
   partialSigs?: Array<PartialSigData>
   sighashType?: number
   redeemScript?: Array<number>
@@ -27,45 +31,72 @@ export interface PsbtInputData {
   finalScriptSig?: Array<number>
   finalScriptWitness?: Array<Array<number>>
 }
+export interface TxOutpoint {
+  txid: string
+  vout: number
+}
 export interface InputPairRequest {
-  prevout: Array<number>
-  scriptSig: Array<number>
-  witness: Array<Array<number>>
-  sequence: number
+  prevout: TxOutpoint
+  scriptSig?: Array<number>
+  witness?: Array<Array<number>>
+  sequence?: number
   psbtData: PsbtInputData
-}
-/**
- * Payjoin URI builder
- * */
-export declare class PayjoinUriBuilder {
-  constructor(address: string, endpoint: string)
-  amount(amountSat: number): PayjoinUriBuilder
-  message(message: string): PayjoinUriBuilder
-  label(label: string): PayjoinUriBuilder
-  disableOutputSubstitution(): PayjoinUriBuilder
-  build(): string
-}
-/**
- * Payjoin URI parser
- * */
-export declare class BtcUri {
-  constructor(bip21: string)
-  assumeChecked(): CheckedBtcUri
-}
-export declare class CheckedBtcUri {
-  checkPjSupported(): PayjoinUri
-}
-export declare class PayjoinUri {
-  endpoint(): PayjoinUrl
-}
-export declare class PayjoinUrl {
-  toString(): string
 }
 export declare class PayjoinOhttpKeys {
   constructor(bytes: Uint8Array)
   static fetch(ohttpRelay: string, payjoinDirectory: string): Promise<PayjoinOhttpKeys>
   toBytes(): Uint8Array
   static fromBytes(bytes: Uint8Array): PayjoinOhttpKeys
+}
+export declare class OhttpContext { }
+export declare class PayjoinReceiver {
+  constructor(address: string, directory: string, ohttpKeys: Uint8Array, ohttpRelay: string, expirySeconds?: bigint | undefined | null)
+  toJson(): string
+  static fromJson(jsonStr: string): PayjoinReceiver
+  pjUrl(): string
+  pjUriBuilder(): PayjoinUriBuilder
+  extractRequest(): PayjoinRequest
+  processResponse(response: Uint8Array, request: PayjoinRequest): UncheckedProposalWrapper | null
+}
+export declare class UncheckedProposalWrapper {
+  originalTx(): string
+  setBroadcastSuitable(suitable: boolean): void
+  checkBroadcastSuitability(minFeeRate?: number | undefined | null): MaybeInputsOwnedWrapper
+  assumeInteractiveReceiver(): MaybeInputsOwnedWrapper
+}
+export declare class MaybeInputsOwnedWrapper {
+  setInputsNotOwned(notOwned: boolean): void
+  checkInputsNotOwned(): MaybeInputsSeenWrapper
+}
+export declare class MaybeInputsSeenWrapper {
+  setNoInputsSeen(noInputsSeen: boolean): void
+  checkNoInputsSeenBefore(): OutputsUnknownWrapper
+}
+export declare class OutputsUnknownWrapper {
+  setReceiverOutputs(receiverOutputs: Array<[number, Uint8Array]>): void
+  identifyReceiverOutputs(): WantsOutputsWrapper
+}
+export declare class WantsOutputsWrapper {
+  isOutputSubstitutionDisabled(): boolean
+  substituteReceiverScript(outputScript: Array<number>): WantsOutputsWrapper
+  replaceReceiverOutputs(replacementOutputs: Array<ReplacementOutput>, drainScript: Array<number>): WantsOutputsWrapper
+  commitOutputs(): WantsInputsWrapper
+}
+export declare class WantsInputsWrapper {
+  tryContributeInputs(candidateInputs: Array<InputPairRequest>): ProvisionalProposalWrapper
+}
+export declare class ProvisionalProposalWrapper {
+  getPsbt(): string
+  setFinalizedPsbt(psbt: string): void
+  finalizeProposal(minFeerateSatPerVb: number | undefined | null, maxFeerateSatPerVb: number): PayjoinProposalWrapper
+}
+export declare class PayjoinProposalWrapper {
+  utxosToBeLocked(): Array<string>
+  isOutputSubstitutionDisabled(): boolean
+  psbt(): string
+  getTxid(): string
+  extractV2Req(): PayjoinRequest
+  processRes(response: Uint8Array, request: PayjoinRequest): this
 }
 export declare class PayjoinRequest {
   url(): string
@@ -83,7 +114,7 @@ export declare class PayjoinV2Context {
   processResponse(response: Uint8Array, request: PayjoinRequest): string | null
 }
 export declare class PayjoinSenderBuilder {
-  constructor(psbt: string, uri: string)
+  static fromPsbtAndUri(psbt: string, uri: string): PayjoinSenderBuilder
   disableOutputSubstitution(disable: boolean): this
   buildRecommended(minFeeRateSatPerVb: number): PayjoinSender
   buildWithAdditionalFee(maxFeeContributionSats: number, changeIndex: number | undefined | null, minFeeRateSatPerVb: number, clampFeeContribution: boolean): PayjoinSender
@@ -93,46 +124,32 @@ export declare class PayjoinSender {
   toJson(): string
   static fromJson(json: string): PayjoinSender
 }
-export declare class OhttpContext { }
-export declare class PayjoinReceiver {
-  constructor(address: string, directory: string, ohttpKeys: Uint8Array, ohttpRelay: string, expirySeconds?: bigint | undefined | null)
-  toJson(): string
-  static fromJson(jsonStr: string): PayjoinReceiver
-  pjUrl(): string
-  pjUriBuilder(): PayjoinUriBuilder
-  extractRequest(): PayjoinRequest
-  processResponse(response: Uint8Array, request: PayjoinRequest): UncheckedProposalWrapper | null
+/**
+ * Payjoin URI builder
+ * */
+export declare class PayjoinUriBuilder {
+  constructor(address: string, endpoint: string)
+  amount(amountSat: number): PayjoinUriBuilder
+  message(message: string): PayjoinUriBuilder
+  label(label: string): PayjoinUriBuilder
+  disableOutputSubstitution(): PayjoinUriBuilder
+  build(): string
 }
-export declare class UncheckedProposalWrapper {
-  originalTx(): string
-  checkBroadcastSuitability(minFeeRate: number | undefined | null, canBroadcast: (...args: any[]) => any): MaybeInputsOwnedWrapper
-  assumeInteractiveReceiver(): MaybeInputsOwnedWrapper
+/**
+ * Payjoin URI parser
+ * */
+export declare class BtcUri {
+  static tryFrom(bip21: string): BtcUri
+  assumeChecked(): CheckedBtcUri
 }
-export declare class MaybeInputsOwnedWrapper {
-  checkInputsNotOwned(isOwned: (...args: any[]) => any): MaybeInputsSeenWrapper
+export declare class CheckedBtcUri {
+  checkPjSupported(): PayjoinUri
 }
-export declare class MaybeInputsSeenWrapper {
-  checkNoInputsSeenBefore(isKnown: (...args: any[]) => any): OutputsUnknownWrapper
+export declare class PayjoinUri {
+  endpoint(): PayjoinUrl
+  amount(): number | null
+  address(): string | null
 }
-export declare class OutputsUnknownWrapper {
-  identifyReceiverOutputs(isReceiverOutput: (...args: any[]) => any): WantsOutputsWrapper
-}
-export declare class WantsOutputsWrapper {
-  isOutputSubstitutionDisabled(): boolean
-  substituteReceiverScript(outputScript: Array<number>): WantsOutputsWrapper
-  replaceReceiverOutputs(replacementOutputs: Array<ReplacementOutput>, drainScript: Array<number>): WantsOutputsWrapper
-  commitOutputs(): WantsInputsWrapper
-}
-export declare class WantsInputsWrapper {
-  tryContributeInputs(candidateInputs: Array<InputPairRequest>): ProvisionalProposalWrapper
-}
-export declare class ProvisionalProposalWrapper {
-  finalizeProposal(walletProcessPsbt: (...args: any[]) => any, minFeerateSatPerVb: number | undefined | null, maxFeerateSatPerVb: number): PayjoinProposalWrapper
-}
-export declare class PayjoinProposalWrapper {
-  utxosToBeLocked(): Array<string>
-  isOutputSubstitutionDisabled(): boolean
-  psbt(): string
-  extractV2Req(): PayjoinRequest
-  processRes(response: Uint8Array, request: PayjoinRequest): this
+export declare class PayjoinUrl {
+  toString(): string
 }

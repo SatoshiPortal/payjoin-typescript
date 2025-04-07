@@ -7,20 +7,17 @@ export interface IPayjoinUriBuilder<T extends IPayjoinUriBuilder<T>> {
     build(): string;
 }
 
-export interface IBtcUriConstructor {
-    tryFrom(bip21: string): IBtcUri;
-    new (internal: any): IBtcUri;
-}
-
 export interface IBtcUri {
-    assumeChecked(): ICheckedBtcUri;
-  }
+  assumeChecked(): ICheckedBtcUri;
+}
   
   export interface ICheckedBtcUri {
     checkPjSupported(): Promise<IPayjoinUri>;
   }
   
   export interface IPayjoinUri {
+    amount(): number;
+    address(): string;
     endpoint(): IPayjoinUrl;
   }
   

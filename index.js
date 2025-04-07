@@ -310,19 +310,9 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { PayjoinUriBuilder, BtcUri, CheckedBtcUri, PayjoinUri, PayjoinUrl, PayjoinOhttpKeys, PayjoinRequest, PayjoinResponse, PayjoinV2Context, PayjoinSenderBuilder, PayjoinSender, OhttpContext, PayjoinReceiver, UncheckedProposalWrapper, MaybeInputsOwnedWrapper, MaybeInputsSeenWrapper, OutputsUnknownWrapper, WantsOutputsWrapper, WantsInputsWrapper, ProvisionalProposalWrapper, PayjoinProposalWrapper } = nativeBinding
+const { PayjoinOhttpKeys, OhttpContext, PayjoinReceiver, UncheckedProposalWrapper, MaybeInputsOwnedWrapper, MaybeInputsSeenWrapper, OutputsUnknownWrapper, WantsOutputsWrapper, WantsInputsWrapper, ProvisionalProposalWrapper, PayjoinProposalWrapper, PayjoinRequest, PayjoinResponse, PayjoinV2Context, PayjoinSenderBuilder, PayjoinSender, PayjoinUriBuilder, BtcUri, CheckedBtcUri, PayjoinUri, PayjoinUrl } = nativeBinding
 
-module.exports.PayjoinUriBuilder = PayjoinUriBuilder
-module.exports.BtcUri = BtcUri
-module.exports.CheckedBtcUri = CheckedBtcUri
-module.exports.PayjoinUri = PayjoinUri
-module.exports.PayjoinUrl = PayjoinUrl
 module.exports.PayjoinOhttpKeys = PayjoinOhttpKeys
-module.exports.PayjoinRequest = PayjoinRequest
-module.exports.PayjoinResponse = PayjoinResponse
-module.exports.PayjoinV2Context = PayjoinV2Context
-module.exports.PayjoinSenderBuilder = PayjoinSenderBuilder
-module.exports.PayjoinSender = PayjoinSender
 module.exports.OhttpContext = OhttpContext
 module.exports.PayjoinReceiver = PayjoinReceiver
 module.exports.UncheckedProposalWrapper = UncheckedProposalWrapper
@@ -333,3 +323,13 @@ module.exports.WantsOutputsWrapper = WantsOutputsWrapper
 module.exports.WantsInputsWrapper = WantsInputsWrapper
 module.exports.ProvisionalProposalWrapper = ProvisionalProposalWrapper
 module.exports.PayjoinProposalWrapper = PayjoinProposalWrapper
+module.exports.PayjoinRequest = PayjoinRequest
+module.exports.PayjoinResponse = PayjoinResponse
+module.exports.PayjoinV2Context = PayjoinV2Context
+module.exports.PayjoinSenderBuilder = PayjoinSenderBuilder
+module.exports.PayjoinSender = PayjoinSender
+module.exports.PayjoinUriBuilder = PayjoinUriBuilder
+module.exports.BtcUri = BtcUri
+module.exports.CheckedBtcUri = CheckedBtcUri
+module.exports.PayjoinUri = PayjoinUri
+module.exports.PayjoinUrl = PayjoinUrl
