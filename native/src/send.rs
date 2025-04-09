@@ -15,7 +15,7 @@ pub struct PayjoinSenderBuilder {
 
 #[napi]
 impl PayjoinSenderBuilder {
-    #[napi(constructor)]
+    #[napi]
     pub fn from_psbt_and_uri(psbt: String, uri: String) -> napi::Result<Self> {
         let psbt = Psbt::from_str(&psbt)
             .map_err(|e| napi::Error::from_reason(format!("Invalid PSBT: {}", e)))?;
