@@ -1,5 +1,6 @@
 use crate::request::PayjoinRequest;
 use crate::uri::PayjoinUriBuilder;
+use napi::bindgen_prelude::*;
 use napi::bindgen_prelude::{BigInt, Uint8Array};
 use napi::Result;
 use napi_derive::napi;
@@ -130,12 +131,7 @@ impl PayjoinReceiver {
 
         self.inner
             .process_res(response_vec, ohttp_ctx)
-            .map(|proposal| {
-                proposal.map(|p| UncheckedProposalWrapper {
-                    inner: p,
-                    broadcast_suitable: false,
-                })
-            })
+            .map(|proposal| proposal.map(|p| UncheckedProposalWrapper { inner: p }))
             .map_err(|e| napi::Error::from_reason(format!("Failed to process response: {}", e)))
     }
 }
@@ -155,7 +151,6 @@ fn log_debug(message: &str) {
 #[napi]
 pub struct UncheckedProposalWrapper {
     inner: UncheckedProposal,
-    broadcast_suitable: bool,
 }
 
 #[napi]
@@ -167,14 +162,10 @@ impl UncheckedProposalWrapper {
     }
 
     #[napi]
-    pub fn set_broadcast_suitable(&mut self, suitable: bool) {
-        self.broadcast_suitable = suitable;
-    }
-
-    #[napi]
     pub fn check_broadcast_suitability(
         &mut self,
         min_fee_rate: Option<f64>,
+        can_broadcast: Function<String, bool>,
     ) -> napi::Result<MaybeInputsOwnedWrapper> {
         log_debug("check_broadcast_suitability: Entered function");
 
@@ -191,30 +182,30 @@ impl UncheckedProposalWrapper {
             min_fee_rate
         ));
 
-        // Use the threadsafe function in the Rust logic
         let result = self
             .inner
             .clone()
-            .check_broadcast_suitability(min_fee_rate, |_tx| {
-                // return the value of broadcast_suitable previously set with set_broadcast_suitable
-                if self.broadcast_suitable {
-                    Ok(true)
-                } else {
-                    Err(payjoin::Error::Server(
-                        "Broadcast not suitable".to_string().into(),
-                    ))
-                }
+            .check_broadcast_suitability(min_fee_rate, |tx| {
+                let tx_hex = payjoin::bitcoin::consensus::encode::serialize_hex(tx);
+                log_debug(&format!(
+                    "check_broadcast_suitability: Checking broadcast suitability for tx: {}",
+                    tx_hex
+                ));
+
+                let result = can_broadcast.call(tx_hex);
+
+                result.map_err(|e| {
+                    log_debug(&format!("check_broadcast_suitability: Error: {}", e));
+                    payjoin::Error::Server(format!("Failed to check broadcast: {}", e).into())
+                })
             })
-            .map(|m| MaybeInputsOwnedWrapper {
-                inner: m,
-                inputs_not_owned: false,
-            })
+            .map(|m| MaybeInputsOwnedWrapper { inner: m })
             .map_err(|e| {
                 log_debug(&format!(
                     "check_broadcast_suitability: Error in check_broadcast_suitability: {}",
                     e
                 ));
-                napi::Error::from_reason(format!("Failed to check broadcast: {}", e))
+                napi::Error::from_reason(format!("Failed checking broadcast: {}", e))
             });
 
         log_debug("check_broadcast_suitability: Exiting function");
@@ -225,7 +216,6 @@ impl UncheckedProposalWrapper {
     pub fn assume_interactive_receiver(&mut self) -> MaybeInputsOwnedWrapper {
         MaybeInputsOwnedWrapper {
             inner: self.inner.clone().assume_interactive_receiver(),
-            inputs_not_owned: false,
         }
     }
 }
@@ -233,42 +223,30 @@ impl UncheckedProposalWrapper {
 #[napi]
 pub struct MaybeInputsOwnedWrapper {
     inner: MaybeInputsOwned,
-    inputs_not_owned: bool,
 }
 
 #[napi]
 impl MaybeInputsOwnedWrapper {
     #[napi]
-    pub fn set_inputs_not_owned(&mut self, not_owned: bool) {
-        log_debug(&format!(
-            "set_inputs_not_owned: Setting inputs_not_owned to {}",
-            not_owned
-        ));
-        self.inputs_not_owned = not_owned;
-    }
-
-    #[napi]
-    pub fn check_inputs_not_owned(&mut self) -> napi::Result<MaybeInputsSeenWrapper> {
+    pub fn check_inputs_not_owned(
+        &mut self,
+        is_owned: Function<String, bool>,
+    ) -> napi::Result<MaybeInputsSeenWrapper> {
         self.inner
             .clone()
-            .check_inputs_not_owned(|_script| {
+            .check_inputs_not_owned(|script| {
                 log_debug("check_inputs_not_owned: Checking inputs not owned");
-                // return the value of inputs_not_owned previously set with set_inputs_not_owned
-                if self.inputs_not_owned {
-                    log_debug("check_inputs_not_owned: Inputs not owned");
-                    // the actual callback function is "is_owned" so we inverse the logic
-                    Ok(false) // Inputs are not owned
-                } else {
-                    log_debug("check_inputs_not_owned: Inputs are owned");
-                    Err(payjoin::Error::Server(
-                        "Input(s) are owned".to_string().into(),
-                    ))
-                }
+
+                let script_hex = script.to_hex_string();
+
+                let result = is_owned.call(script_hex);
+
+                result.map_err(|e| {
+                    log_debug(&format!("check_inputs_not_owned: Error: {}", e));
+                    payjoin::Error::Server(format!("Failed to check inputs: {}", e).into())
+                })
             })
-            .map(|m| MaybeInputsSeenWrapper {
-                inner: m,
-                no_inputs_seen: false,
-            })
+            .map(|m| MaybeInputsSeenWrapper { inner: m })
             .map_err(|e| napi::Error::from_reason(format!("Failed to check inputs: {}", e)))
     }
 }
@@ -276,39 +254,28 @@ impl MaybeInputsOwnedWrapper {
 #[napi]
 pub struct MaybeInputsSeenWrapper {
     inner: MaybeInputsSeen,
-    no_inputs_seen: bool,
 }
 
 #[napi]
 impl MaybeInputsSeenWrapper {
     #[napi]
-    pub fn set_no_inputs_seen(&mut self, no_inputs_seen: bool) {
-        log_debug(&format!(
-            "set_no_inputs_seen: Setting no_inputs_seen to {}",
-            no_inputs_seen
-        ));
-        self.no_inputs_seen = no_inputs_seen;
-    }
-
-    #[napi]
-    pub fn check_no_inputs_seen_before(&mut self) -> napi::Result<OutputsUnknownWrapper> {
+    pub fn check_no_inputs_seen_before(
+        &mut self,
+        is_known: Function<String, bool>,
+    ) -> napi::Result<OutputsUnknownWrapper> {
         self.inner
             .clone()
-            .check_no_inputs_seen_before(|_outpoint| {
-                // return the value of inputs_not_owned previously set with set_inputs_not_owned
-                if self.no_inputs_seen {
-                    // the actual callback function is "is_owned" so we inverse the logic
-                    Ok(false) // Inputs are not owned
-                } else {
-                    Err(payjoin::Error::Server(
-                        "Input(s) are known".to_string().into(),
-                    ))
-                }
+            .check_no_inputs_seen_before(|outpoint| {
+                let outpoint_str = outpoint.to_string();
+
+                let result = is_known.call(outpoint_str);
+
+                result.map_err(|e| {
+                    log_debug(&format!("check_no_inputs_seen_before: Error: {}", e));
+                    payjoin::Error::Server(format!("Failed to check inputs: {}", e).into())
+                })
             })
-            .map(|o| OutputsUnknownWrapper {
-                inner: o,
-                receiver_outputs: vec![],
-            })
+            .map(|o| OutputsUnknownWrapper { inner: o })
             .map_err(|e| napi::Error::from_reason(format!("Failed to check inputs: {}", e)))
     }
 }
@@ -316,31 +283,26 @@ impl MaybeInputsSeenWrapper {
 #[napi]
 pub struct OutputsUnknownWrapper {
     inner: OutputsUnknown,
-    receiver_outputs: Vec<(u8, Uint8Array)>,
 }
 
 #[napi]
 impl OutputsUnknownWrapper {
     #[napi]
-    pub fn set_receiver_outputs(&mut self, receiver_outputs: Vec<(u8, Uint8Array)>) {
-        self.receiver_outputs = receiver_outputs;
-    }
-
-    #[napi]
-    pub fn identify_receiver_outputs(&mut self) -> napi::Result<WantsOutputsWrapper> {
+    pub fn identify_receiver_outputs(
+        &mut self,
+        is_receiver_output: Function<String, bool>,
+    ) -> napi::Result<WantsOutputsWrapper> {
         self.inner
             .clone()
             .identify_receiver_outputs(|script| {
-                log_debug("identify_receiver_outputs: Identifying receiver outputs");
-                // Convert the script to a Vec<u8>
-                let script_bytes = script.to_bytes();
-                // Find the corresponding output in the receiver_outputs vector
-                for output in &self.receiver_outputs {
-                    if output.1.to_vec() == script_bytes {
-                        return Ok(true);
-                    }
-                }
-                Ok(false)
+                let script_hex = script.to_hex_string();
+
+                let result = is_receiver_output.call(script_hex);
+
+                result.map_err(|e| {
+                    log_debug(&format!("identify_receiver_outputs: Error: {}", e));
+                    payjoin::Error::Server(format!("Failed to identify outputs: {}", e).into())
+                })
             })
             .map(|w| WantsOutputsWrapper { inner: w })
             .map_err(|e| napi::Error::from_reason(format!("Failed to identify outputs: {}", e)))
@@ -664,7 +626,8 @@ impl ProvisionalProposalWrapper {
     pub fn finalize_proposal(
         &mut self,
         min_feerate_sat_per_vb: Option<f64>,
-        max_feerate_sat_per_vb: f64,
+        max_feerate_sat_per_vb: Option<f64>,
+        wallet_process_psbt: Function<String, String>,
     ) -> napi::Result<PayjoinProposalWrapper> {
         let min_fee_rate = min_feerate_sat_per_vb
             .map(|rate| {
@@ -673,25 +636,36 @@ impl ProvisionalProposalWrapper {
             })
             .transpose()?;
 
-        let max_fee_rate = FeeRate::from_sat_per_vb(max_feerate_sat_per_vb as u64)
-            .ok_or_else(|| napi::Error::from_reason("Invalid max fee rate"))?;
+        let max_fee_rate = max_feerate_sat_per_vb
+            .map(|rate| {
+                FeeRate::from_sat_per_vb(rate as u64)
+                    .ok_or_else(|| napi::Error::from_reason("Invalid max fee rate"))
+            })
+            .transpose()?;
 
         self.inner
             .clone()
             .finalize_proposal(
-                |_psbt| {
-                    // Check if we already have a finalized PSBT
-                    if let Some(psbt) = &self.finalized_psbt {
-                        Ok(psbt.clone())
-                    } else {
-                        // Return an error instead of processing normally
-                        Err(payjoin::Error::Server(
-                            "No finalized PSBT available".to_string().into(),
-                        ))
-                    }
+                |psbt| {
+                    let psbt_string = psbt.to_string();
+                    log_debug(&format!(
+                        "finalize_proposal: Finalizing PSBT: {}",
+                        psbt_string
+                    ));
+                    let result = wallet_process_psbt.call(psbt_string).map_err(|e| {
+                        payjoin::Error::Server(
+                            format!("Failed to call wallet_process_psbt: {}", e).into(),
+                        )
+                    })?;
+
+                    Psbt::from_str(&result).map_err(|e| {
+                        payjoin::Error::Server(
+                            format!("Failed to parse finalized PSBT: {}", e).into(),
+                        )
+                    })
                 },
                 min_fee_rate,
-                max_fee_rate,
+                max_fee_rate.unwrap_or(FeeRate::ZERO),
             )
             .map(|p| PayjoinProposalWrapper { inner: p })
             .map_err(|e| napi::Error::from_reason(format!("Failed to finalize proposal: {}", e)))

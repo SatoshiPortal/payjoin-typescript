@@ -13,28 +13,29 @@ export interface IPayjoinReceiver {
 
 export interface IUncheckedProposal {
   originalTx(): string;
-  setBroadcastSuitable(suitable: boolean): void;
   checkBroadcastSuitability(
     minFeeRate: number | null,
+    canBoradcast?: (txhex: string) => boolean
   ): Promise<IMaybeInputsOwned>;
   assumeInteractiveReceiver(): IMaybeInputsOwned;
 }
 
 export interface IMaybeInputsOwned {
-  setInputsNotOwned(notOwned: boolean): void
   checkInputsNotOwned(
-    isOwned: (script: Uint8Array) => Promise<boolean>
+    isOwned: (script: string) => boolean
   ): Promise<IMaybeInputsSeen>;
 }
 
 export interface IMaybeInputsSeen {
-  setNoInputsSeen(notSeen: boolean): void;
-  checkNoInputsSeenBefore(): Promise<IOutputsUnknown>;
+  checkNoInputsSeenBefore(
+    isKnown: (outpoint: string) => boolean
+  ): Promise<IOutputsUnknown>;
 }
 
 export interface IOutputsUnknown {
-  setReceiverOutputs(receiverOutputs: [number, Uint8Array][]): void;
-  identifyReceiverOutputs(): Promise<IWantsOutputs>;
+  identifyReceiverOutputs(
+    isReceiverOutput: (script: string) => boolean
+  ): Promise<IWantsOutputs>;
 }
 
 export interface IReplacementOutput {
@@ -100,11 +101,10 @@ export interface IWantsInputs {
 }
 
 export interface IProvisionalProposal {
-  getPsbt(): Promise<string>;
-  setFinalizedPsbt(psbt: string): void;
   finalizeProposal(
     minFeerateSatPerVb: number | null,
-    maxFeerateSatPerVb: number
+    maxFeerateSatPerVb: number,
+    walletProcessPsbt: (psbt: string) => string
   ): Promise<IPayjoinProposal>;
 }
 

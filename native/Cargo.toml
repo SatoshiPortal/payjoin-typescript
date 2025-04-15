@@ -11,8 +11,8 @@ default = ["v2"]
 v2 = []
 
 [dependencies]
-napi = { version = "2.16.16", features = ["async", "napi4", "napi6", "napi8"] }
-napi-derive = "2.16.13"
+napi = { version = "3.0.0-alpha.33", features = ["napi8", "tokio_full", "async", "full"] }
+napi-derive = { version = "3.0.0-alpha.29", features = ["type-def"] }
 payjoin = { version = "0.22.0", features = ["v2", "io", "send", "receive"] }
 url = "2.5.0"
 ohttp = { package = "bitcoin-ohttp", version = "0.6.0" }
@@ -25,7 +25,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [build-dependencies]
-napi-build = "2.0.1"
+napi-build = "2.1.6"
 
 [profile.release]
 lto = true

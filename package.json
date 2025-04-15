@@ -9,17 +9,14 @@
     "index.*.node"
   ],
   "napi": {
-    "name": "index",
-    "triples": {
-      "defaults": true,
-      "additional": [
-        "x86_64-apple-darwin",
-        "aarch64-apple-darwin",
-        "x86_64-unknown-linux-gnu",
-        "x86_64-unknown-linux-musl",
-        "aarch64-unknown-linux-gnu"
-      ]
-    },
+    "binaryName": "index",
+    "targets": [
+      "x86_64-apple-darwin",
+      "aarch64-apple-darwin",
+      "x86_64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-gnu"
+    ],
     "package": {
       "name": "@payjoin-typescript/core"
     },
@@ -28,13 +25,13 @@
   "scripts": {
     "prepare": "npm run build:napi",
     "artifacts": "napi artifacts",
-    "build": "napi build --platform --release --cargo-cwd native && tsc",
-    "build:debug": "napi build --platform --cargo-cwd native",
-    "build:napi": "napi build --platform --release --cargo-cwd native && napi artifacts ",
+    "build": "napi build --platform --release --package payjoin-typescript --manifest-path ./native/Cargo.toml --output-dir . && tsc",
+    "build:debug": "napi build --platform --package payjoin-typescript  --manifest-path ./native/Cargo.toml --output-dir .",
+    "build:napi": "node ./custom-build.js",
     "test": "RUST_BACKTRACE=1 RUST_LOG=debug jest --verbose"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.4",
+    "@napi-rs/cli": "^3.0.0-alpha.77",
     "@types/jest": "^26.0.24",
     "@types/node": "^22.13.4",
     "@typescript-eslint/eslint-plugin": "^4.0.0",
