@@ -91,7 +91,7 @@ pub struct BtcUri {
 
 #[napi]
 impl BtcUri {
-    #[napi(constructor)]
+    #[napi]
     pub fn try_from(bip21: String) -> napi::Result<Self> {
         Uri::try_from(bip21)
             .map(|uri| Self { inner: uri })
@@ -137,6 +137,15 @@ impl PayjoinUri {
         PayjoinUrl {
             inner: self.inner.extras.endpoint().clone(),
         }
+    }
+    #[napi]
+    pub fn amount(&self) -> Option<f64> {
+        Some(self.inner.amount.map(|amt| amt.to_sat() as f64)?)
+    }
+
+    #[napi]
+    pub fn address(&self) -> Option<String> {
+        Some(self.inner.address.to_string())
     }
 }
 

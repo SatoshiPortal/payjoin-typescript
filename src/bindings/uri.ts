@@ -67,14 +67,26 @@ export class UriBuilder implements IPayjoinUriBuilder<UriBuilder> {
   }
 }
 
-
 export class BtcUri implements IBtcUri {
-  constructor(private readonly internal: any) {}
+  private readonly internal: any;
+
+  constructor(bip21: string) {
+    try {
+      this.internal = new native.BtcUri(
+        bip21,
+      );
+    } catch (error) {
+      throw new Error(`Failed to create BtcUri: ${error}`);
+    }
+  }
 
   static tryFrom(bip21: string): BtcUri {
     try {
-      const internal = new native.BtcUri(bip21);
-      return new BtcUri(internal);
+      const internal = new native.BtcUri.tryFrom(bip21);
+      const uri = Object.create(BtcUri.prototype);
+      uri.internal = internal;
+
+      return uri;
     } catch (error) {
       throw new Error(`Failed to create URI from BIP21: ${error}`);
     }
@@ -100,6 +112,14 @@ export class CheckedBtcUri implements ICheckedBtcUri {
 
 export class PayjoinUri implements IPayjoinUri {
   constructor(private readonly internal: any) {}
+
+  amount(): number {
+    return this.internal.amount();
+  }
+
+  address(): string {
+    return this.internal.address();
+  }
 
   endpoint(): PayjoinUrl {
     return new PayjoinUrl(this.internal.endpoint());

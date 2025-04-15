@@ -63,14 +63,14 @@ export class PayjoinReceiver implements IPayjoinReceiver {
     return this.internal.pjUrl();
   }
 
-  getPjUriBuilder(): UriBuilder {
+  pjUriBuilder(): UriBuilder {
     const uri = this.internal.pjUriBuilder();
     return uri;
 }
 
-  async extractRequest(): Promise<PayjoinRequest> {
+  extractRequest(): PayjoinRequest {
     try {
-      const request = await this.internal.extractRequest();
+      const request = this.internal.extractRequest();
       return new PayjoinRequest(request);
     } catch (error) {
       throw new Error(`Failed to extract request: ${error}`);
@@ -106,12 +106,12 @@ export class UncheckedProposal implements IUncheckedProposal {
 
   async checkBroadcastSuitability(
     minFeeRate: number | null,
-    canBroadcast: (tx: string) => Promise<boolean>
+    canBoradcast?: (txhex: string) => boolean
   ): Promise<MaybeInputsOwned> {
     try {
       const result = await this.internal.checkBroadcastSuitability(
         minFeeRate,
-        canBroadcast
+        canBoradcast
       );
       return new MaybeInputsOwned(result);
     } catch (error) {
@@ -131,8 +131,16 @@ export class UncheckedProposal implements IUncheckedProposal {
 export class MaybeInputsOwned implements IMaybeInputsOwned {
   constructor(private readonly internal: any) {}
 
+  setInputsNotOwned(notOwned: boolean): void {
+    try {
+      this.internal.setInputsNotOwned(notOwned);
+    } catch (error) {
+      throw new Error(`Failed to set inputs not owned: ${error}`);
+    }
+  }
+
   async checkInputsNotOwned(
-    isOwned: (script: Uint8Array) => Promise<boolean>
+    isOwned: (script: string) => boolean
   ): Promise<MaybeInputsSeen> {
     try {
       const result = await this.internal.checkInputsNotOwned(isOwned);
@@ -146,9 +154,7 @@ export class MaybeInputsOwned implements IMaybeInputsOwned {
 export class MaybeInputsSeen implements IMaybeInputsSeen {
   constructor(private readonly internal: any) {}
 
-  async checkNoInputsSeenBefore(
-    isKnown: (outpoint: string) => Promise<boolean>
-  ): Promise<OutputsUnknown> {
+  async checkNoInputsSeenBefore(isKnown: (outpoint: string) => boolean): Promise<OutputsUnknown> {
     try {
       const result = await this.internal.checkNoInputsSeenBefore(isKnown);
       return new OutputsUnknown(result);
@@ -162,7 +168,7 @@ export class OutputsUnknown implements IOutputsUnknown {
   constructor(private readonly internal: any) {}
 
   async identifyReceiverOutputs(
-    isReceiverOutput: (script: Uint8Array) => Promise<boolean>
+    isReceiverOutput: (script: string) => boolean
   ): Promise<WantsOutputs> {
     try {
       const result = await this.internal.identifyReceiverOutputs(isReceiverOutput);
@@ -232,15 +238,15 @@ export class ProvisionalProposal implements IProvisionalProposal {
   constructor(private readonly internal: any) {}
 
   async finalizeProposal(
-    walletProcessPsbt: (psbt: string) => Promise<string>,
     minFeerateSatPerVb: number | null,
-    maxFeerateSatPerVb: number
+    maxFeerateSatPerVb: number,
+    walletProcessPsbt: (psbt: string) => string
   ): Promise<PayjoinProposal> {
     try {
       const result = await this.internal.finalizeProposal(
-        walletProcessPsbt,
         minFeerateSatPerVb,
-        maxFeerateSatPerVb
+        maxFeerateSatPerVb,
+        walletProcessPsbt
       );
       return new PayjoinProposal(result);
     } catch (error) {
@@ -252,8 +258,8 @@ export class ProvisionalProposal implements IProvisionalProposal {
 export class PayjoinProposal implements IPayjoinProposal {
   constructor(private readonly internal: any) {}
 
-  utxosToLocked(): string[] {
-    return this.internal.utxosToLocked();
+  utxosToBeLocked(): string[] {
+    return this.internal.utxosToBeLocked();
   }
 
   isOutputSubstitutionDisabled(): boolean {
@@ -262,6 +268,14 @@ export class PayjoinProposal implements IPayjoinProposal {
 
   psbt(): string {
     return this.internal.psbt();
+  }
+
+  getTxid(): string {
+    try {
+      return this.internal.getTxid();
+    } catch (error) {
+      throw new Error(`Failed to get txid: ${error}`);
+    }
   }
 
   async extractV2Req(): Promise<PayjoinRequest> {
@@ -273,9 +287,10 @@ export class PayjoinProposal implements IPayjoinProposal {
     }
   }
 
-  async processRes(response: Uint8Array, request: PayjoinRequest): Promise<void> {
+  async processRes(response: Uint8Array, request: PayjoinRequest): Promise<PayjoinProposal> {
     try {
-      await this.internal.processRes(response, request.nativeHandle);
+      const res = await this.internal.processRes(response, request.nativeHandle);
+      return new PayjoinProposal(res);
     } catch (error) {
       throw new Error(`Failed to process response: ${error}`);
     }

@@ -1,6 +1,6 @@
-use napi::{Result};
-use napi_derive::napi;
 use napi::bindgen_prelude::Uint8Array;
+use napi::Result;
+use napi_derive::napi;
 use payjoin::{OhttpKeys, Url};
 use std::str::FromStr;
 
@@ -35,14 +35,12 @@ impl PayjoinOhttpKeys {
 
     #[napi(ts_return_type = "Uint8Array")]
     pub fn to_bytes(&self) -> napi::Result<Uint8Array> {
-        let bytes = self.inner.encode()
+        let bytes = self
+            .inner
+            .encode()
             .map_err(|e| napi::Error::from_reason(format!("Failed to encode OHTTP keys: {}", e)))?;
         Ok(Uint8Array::new(bytes))
     }
-    // pub fn to_bytes(&self) -> napi::Result<Vec<u8>> {
-    //     self.inner.encode()
-    //         .map_err(|e| napi::Error::from_reason(format!("Failed to encode OHTTP keys: {}", e)))
-    // }
 
     #[napi]
     pub fn from_bytes(bytes: Uint8Array) -> napi::Result<PayjoinOhttpKeys> {
