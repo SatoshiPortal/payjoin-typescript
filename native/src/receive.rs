@@ -591,37 +591,17 @@ impl WantsInputsWrapper {
             .commit_inputs();
 
         // Return the proposal
-        Ok(ProvisionalProposalWrapper {
-            inner: result,
-            finalized_psbt: None,
-        })
+        Ok(ProvisionalProposalWrapper { inner: result })
     }
 }
 
 #[napi]
 pub struct ProvisionalProposalWrapper {
     inner: ProvisionalProposal,
-    finalized_psbt: Option<Psbt>,
 }
 
 #[napi]
 impl ProvisionalProposalWrapper {
-    #[napi]
-    pub fn get_psbt(&self) -> Result<String> {
-        let provisional_proposal = self.inner.clone();
-        let payjoin_proposal = provisional_proposal
-            .finalize_proposal(|psbt| Ok(psbt.clone()), None, FeeRate::ZERO)
-            .map_err(|e| napi::Error::from_reason(format!("Failed to finalize proposal: {}", e)))?;
-        let psbt = payjoin_proposal.psbt().clone();
-
-        Ok(psbt.to_string())
-    }
-
-    #[napi]
-    pub fn set_finalized_psbt(&mut self, psbt: String) {
-        self.finalized_psbt = Some(Psbt::from_str(&psbt).expect("Failed to parse finalized PSBT"));
-    }
-
     #[napi]
     pub fn finalize_proposal(
         &mut self,

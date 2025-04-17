@@ -108,8 +108,6 @@ export declare class PayjoinV2Context {
 }
 
 export declare class ProvisionalProposalWrapper {
-  getPsbt(): string
-  setFinalizedPsbt(psbt: string): void
   finalizeProposal(minFeerateSatPerVb: number | undefined | null, maxFeerateSatPerVb: number | undefined | null, walletProcessPsbt: (arg: string) => string): PayjoinProposalWrapper
 }
 

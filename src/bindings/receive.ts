@@ -82,12 +82,10 @@ export class PayjoinReceiver implements IPayjoinReceiver {
     request: PayjoinRequest
   ): Promise<UncheckedProposal | null> {
     try {
-      console.error('request', request);
       const result = await this.internal.processResponse(response, request.nativeHandle);
-      console.error('processResponse result', result);
+
       return result ? new UncheckedProposal(result) : null;
     } catch (error) {
-      console.error("error", error);
       throw new Error(`Failed to process response: ${error}`);
     }
   }
@@ -130,14 +128,6 @@ export class UncheckedProposal implements IUncheckedProposal {
 
 export class MaybeInputsOwned implements IMaybeInputsOwned {
   constructor(private readonly internal: any) {}
-
-  setInputsNotOwned(notOwned: boolean): void {
-    try {
-      this.internal.setInputsNotOwned(notOwned);
-    } catch (error) {
-      throw new Error(`Failed to set inputs not owned: ${error}`);
-    }
-  }
 
   async checkInputsNotOwned(
     isOwned: (script: string) => boolean
