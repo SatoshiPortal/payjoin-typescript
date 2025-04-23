@@ -9,14 +9,21 @@ import native from '../native';
   export class PayjoinSenderBuilder implements IPayjoinSenderBuilder {
     private readonly internal: any;
 
-    constructor(internal: any) {
-        this.internal = internal;
+    constructor(psbt: string, uri: string) {
+      try {
+        this.internal = new native.PayjoinSenderBuilder(psbt, uri);
+      } catch (error) {
+        throw new Error(`Failed to create PayjoinReceiver: ${error}`);
+      }
     }
   
     static fromPsbtAndUri(psbt: string, uri: string): PayjoinSenderBuilder {
       try {
-        const internal = new native.PayjoinSenderBuilder(psbt, uri);
-        return new PayjoinSenderBuilder(internal);
+        const internal = native.PayjoinSenderBuilder.fromPsbtAndUri(psbt, uri);
+        const builder = Object.create(PayjoinSenderBuilder.prototype);
+        builder.internal = internal;
+  
+        return builder;
       } catch (error) {
         throw new Error(`Failed to create PayjoinSenderBuilder: ${error}`);
       }
