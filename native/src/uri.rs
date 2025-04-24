@@ -2,6 +2,8 @@
 
 use napi_derive::napi;
 use payjoin::bitcoin::address::{NetworkChecked, NetworkUnchecked};
+use payjoin::bitcoin::bech32;
+use payjoin::bitcoin::consensus::Decodable;
 use payjoin::bitcoin::{Address, Amount};
 use payjoin::{PjUri, PjUriBuilder, Uri, UriExt};
 use std::str::FromStr;
@@ -138,9 +140,35 @@ impl PayjoinUri {
             inner: self.inner.extras.endpoint().clone(),
         }
     }
+
+    #[napi]
+    pub fn exp(&self) -> Option<u64> {
+        let endpoint = self.inner.extras.endpoint();
+
+        let value = get_param(endpoint, "EX1", |v| Some(v.to_owned()))?;
+
+        let hrp_string =
+            bech32::primitives::decode::CheckedHrpstring::new::<bech32::NoChecksum>(&value)
+                .map_err(|_| napi::Error::from_reason("Invalid EX1 value"))
+                .ok()?;
+
+        let hrp = hrp_string.hrp();
+        let bytes = hrp_string.byte_iter().collect::<Vec<u8>>();
+
+        let ex_hrp: bech32::Hrp = bech32::Hrp::parse("EX").unwrap();
+        if hrp != ex_hrp {
+            return None;
+        }
+
+        match u32::consensus_decode(&mut &bytes[..]) {
+            Ok(timestamp) => Some(timestamp as u64),
+            Err(_) => None,
+        }
+    }
+
     #[napi]
     pub fn amount(&self) -> Option<f64> {
-        Some(self.inner.amount.map(|amt| amt.to_sat() as f64)?)
+        self.inner.amount.map(|amt| amt.to_sat() as f64)
     }
 
     #[napi]
@@ -160,4 +188,18 @@ impl PayjoinUrl {
     pub fn to_string(&self) -> String {
         self.inner.to_string()
     }
+}
+
+fn get_param<F, T>(url: &Url, prefix: &str, parse: F) -> Option<T>
+where
+    F: Fn(&str) -> Option<T>,
+{
+    if let Some(fragment) = url.fragment() {
+        for param in fragment.split('+') {
+            if param.starts_with(prefix) {
+                return parse(param);
+            }
+        }
+    }
+    None
 }

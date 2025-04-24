@@ -124,6 +124,10 @@ export class PayjoinUri implements IPayjoinUri {
   endpoint(): PayjoinUrl {
     return new PayjoinUrl(this.internal.endpoint());
   }
+
+  exp(): bigint {
+    return this.internal.exp();
+  }
 }
 
 export class PayjoinUrl implements IPayjoinUrl {

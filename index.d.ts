@@ -82,6 +82,7 @@ export declare class PayjoinSenderBuilder {
 
 export declare class PayjoinUri {
   endpoint(): PayjoinUrl
+  exp(): bigint | null
   amount(): number | null
   address(): string | null
 }
