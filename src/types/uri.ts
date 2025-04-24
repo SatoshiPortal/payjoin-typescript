@@ -19,6 +19,7 @@ export interface IBtcUri {
     amount(): number;
     address(): string;
     endpoint(): IPayjoinUrl;
+    exp(): bigint;
   }
   
   export interface IPayjoinUrl {
